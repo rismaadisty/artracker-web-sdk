@@ -292,3 +292,19 @@ test('init memasang breadcrumb click dan page_view navigasi', async () => {
   const crumbs = sent().find((i) => i.message === 'Error: after click')?.attributes?.breadcrumbs as Array<{ type: string }>
   expect(crumbs.map((b) => b.type)).toEqual(['click', 'navigation'])
 })
+
+test('init memasang interceptor jaringan; network.enabled=false tidak memasangnya', async () => {
+  const c = make()
+  c.init(opts)
+  expect(globalThis.fetch).not.toBe(fetchMock) // ter-patch
+  // body harus JSON karena envelopes() mem-parse setiap panggilan fetchMock
+  await fetch('https://api.example/items', { method: 'POST', body: '{"items":[]}' })
+  await c.flush()
+  expect(sent().find((i) => i.name === 'http_request')?.attributes?.url).toBe('https://api.example/items')
+  c.shutdown()
+  expect(globalThis.fetch).toBe(fetchMock)
+
+  const c2 = make()
+  c2.init({ ...opts, network: { enabled: false } })
+  expect(globalThis.fetch).toBe(fetchMock)
+})
