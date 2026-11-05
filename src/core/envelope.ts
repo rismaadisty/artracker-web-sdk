@@ -18,6 +18,8 @@ export interface ItemInput {
   userId?: string
   /** epoch ms; default Date.now() */
   at?: number
+  /** Internal: lewati walker redaksi atribut (replay sudah di-mask di level rrweb). beforeSend tetap berjalan. */
+  skipRedaction?: boolean
 }
 
 /**

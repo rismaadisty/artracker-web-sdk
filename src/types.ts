@@ -1,3 +1,5 @@
+import type { TelemetryContext } from './core/client'
+
 export type ItemType = 'event' | 'log' | 'session'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
@@ -27,13 +29,19 @@ export type SendOutcome =
   | { kind: 'split' }
   | { kind: 'kill'; reason: string }
 
+/** Penggerak perekaman sesi. Disuntikkan dari `@artracker/browser/replay` agar rrweb tidak ikut ke entry utama. */
+export interface ReplayDriver {
+  /** Mengembalikan fungsi stop. `force` mengabaikan `enabled` dan sampling (dipakai startReplay() manual). */
+  start(ctx: TelemetryContext, opts?: { force?: boolean }): Promise<() => void>
+}
+
 export interface ARTrackerOptions {
   appKey: string
   endpoint: string
   environment?: string
   appVersion?: string
   sampleRate?: number
-  replay?: { enabled?: boolean; sampleRate?: number }
+  replay?: { enabled?: boolean; sampleRate?: number; driver?: ReplayDriver }
   privacy?: {
     maskAllInputs?: boolean
     blockClass?: string
@@ -59,7 +67,7 @@ export interface ResolvedConfig {
   environment: string
   appVersion: string
   sampleRate: number
-  replay: { enabled: boolean; sampleRate: number }
+  replay: { enabled: boolean; sampleRate: number; driver: ReplayDriver | undefined }
   privacy: {
     maskAllInputs: boolean
     blockClass: string

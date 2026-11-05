@@ -160,3 +160,15 @@ test('beforeSend yang mengembalikan nilai tidak valid mempertahankan item yang s
   expect(out).not.toBeNull()
   expect(JSON.stringify(out)).not.toContain('budi@example.com')
 })
+
+test('fast path: teks tanpa pemicu tidak berubah dan hasil identik dengan jalur penuh', () => {
+  for (const s of ['Halaman beranda', 'Selamat datang di toko kami', '', 'a b c']) expect(redactString(s)).toBe(s)
+})
+
+test('redactItem dengan skipAttributes tidak menyentuh attributes (objek dalam tetap utuh) tetapi tetap menjalankan beforeSend', () => {
+  const deep = { a: { b: { c: { d: { e: { f: { g: 'dalam' } } } } } }, token: 'jangan-diubah' }
+  const seen: unknown[] = []
+  const out = redactItem(createItem({ type: 'session', name: 'replay_chunk', attributes: deep }), { ...cfg, beforeSend: (i) => (seen.push(i.name), i) }, { skipAttributes: true })
+  expect(out?.attributes).toEqual(deep)
+  expect(seen).toEqual(['replay_chunk'])
+})

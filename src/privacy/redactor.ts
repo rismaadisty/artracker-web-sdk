@@ -41,7 +41,11 @@ function maskEmail(email: string): string {
   return `${email.slice(0, 1)}***${email.slice(at)}`
 }
 
+// Fast path: semua pola di bawah butuh salah satu pemicu ini; teks biasa tanpa pemicu (mayoritas node DOM) lewat tanpa regex.
+const TRIGGER = /[@=\d]|eyj|bearer|basic|_live_|_test_|_sec_/i
+
 function builtIn(input: string): string {
+  if (!TRIGGER.test(input)) return input
   let s = input
   s = s.replace(JWT_RE, REDACTED)
   s = s.replace(BEARER_RE, `Bearer ${REDACTED}`).replace(BASIC_RE, `Basic ${REDACTED}`)
@@ -138,12 +142,12 @@ function looksLikeItem(x: unknown): x is RawItem {
  * Redaksi bawaan -> redactor kustom -> beforeSend (paling akhir). null = item dibuang.
  * beforeSend yang melempar membuang item (fail-closed): hook itu sering adalah scrubber milik pengguna.
  */
-export function redactItem(item: RawItem, cfg: ResolvedConfig): RawItem | null {
+export function redactItem(item: RawItem, cfg: ResolvedConfig, opts?: { skipAttributes?: boolean }): RawItem | null {
   const extra = cfg.privacy.redactors
   const out: RawItem = { ...item }
   if (out.name) out.name = redactStringWith(out.name, extra)
   if (out.message) out.message = redactStringWith(out.message, extra)
-  if (out.attributes) out.attributes = redactValue(out.attributes, 0, extra) as Record<string, unknown>
+  if (out.attributes && !opts?.skipAttributes) out.attributes = redactValue(out.attributes, 0, extra) as Record<string, unknown>
 
   if (cfg.beforeSend) {
     let result: unknown

@@ -14,7 +14,10 @@ const SENSITIVE_PARAMS = [
 ].join('|')
 
 // Tanpa lookbehind: Safari < 16.4 melempar SyntaxError saat memuat modul bila ada (?<!...).
-const PARAM_RE = new RegExp(`([?&#;])(${SENSITIVE_PARAMS})=([^&#\\s]*)`, 'gi')
+// Nilai berhenti di tanda kutip/backslash agar aman dijalankan pada teks JSON (chunker replay).
+const PARAM_RE = new RegExp(`([?&#;])(${SENSITIVE_PARAMS})=([^&#\\s"\\\\]*)`, 'gi')
+/** Pengecekan cepat tanpa flag g: apakah string kemungkinan memuat param sensitif. */
+export const SENSITIVE_PARAM_HINT = new RegExp(`[?&#;](${SENSITIVE_PARAMS})=`, 'i')
 const PATH_ID_RE = /\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4,})(?=\/|$)/gi
 
 /** Meredaksi nilai query/fragment param sensitif di dalam string apa pun. */

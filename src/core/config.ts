@@ -53,6 +53,7 @@ export function resolveConfig(options: ARTrackerOptions): ResolvedConfig {
     replay: {
       enabled: o.replay?.enabled ?? false,
       sampleRate: clamp(o.replay?.sampleRate, 0, 1, 0.1),
+      driver: o.replay?.driver,
     },
     privacy: {
       maskAllInputs: o.privacy?.maskAllInputs ?? true,

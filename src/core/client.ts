@@ -47,6 +47,9 @@ interface Runtime {
   failures: number
   retryTimer: ReturnType<typeof setTimeout> | undefined
   killed: boolean
+  replayStop: (() => void) | undefined
+  replayStarting: boolean
+  replayForced: boolean
 }
 
 const isBrowser = (): boolean => typeof window !== 'undefined' && typeof document !== 'undefined'
@@ -119,12 +122,19 @@ export class ARTrackerClient {
     }
   }
 
+  /** Memulai perekaman manual (mengabaikan `replay.enabled` dan sampling). Butuh driver dari `@artracker/browser/replay`. */
   startReplay(): void {
-    // Diimplementasikan di Task 16.
+    this.run((rt) => {
+      rt.replayForced = true
+      this.startReplayInternal(rt, true)
+    })
   }
 
   stopReplay(): void {
-    // Diimplementasikan di Task 16.
+    this.run((rt) => {
+      rt.replayForced = false
+      this.stopReplayInternal(rt)
+    })
   }
 
   /** Logout: identitas dan sesi baru. Item yang tertunda tetap membawa user lama. */
@@ -141,6 +151,7 @@ export class ARTrackerClient {
     this.pre = []
     if (!rt) return
     safeCall(() => {
+      this.stopReplayInternal(rt)
       rt.queue.flush('lifecycle')
       this.teardown(rt)
     }, rt.cfg.debug, 'shutdown')
@@ -181,6 +192,9 @@ export class ARTrackerClient {
       failures: 0,
       retryTimer: undefined,
       killed: false,
+      replayStop: undefined,
+      replayStarting: false,
+      replayForced: false,
     } as unknown as Runtime
     rt.queue = new BatchQueue(cfg, (items, reason) => this.onFlush(rt, items, reason))
     rt.ctx = {
@@ -196,6 +210,11 @@ export class ARTrackerClient {
         this.emit(rt, { type: 'session', name: 'session_end', sessionId: previous, attributes: { breadcrumbs: breadcrumbs.snapshot() } })
       }
       this.emit(rt, { type: 'session', name: 'session_start', sessionId: id, attributes: collectDeviceMeta() })
+      // Sampling replay diputuskan per sesi: sesi baru = keputusan baru.
+      if (rt.replayStop || rt.replayStarting) {
+        this.stopReplayInternal(rt)
+        this.startReplayInternal(rt, rt.replayForced)
+      }
     })
 
     this.listen(rt, window, 'pagehide', () => rt.queue.flush('lifecycle'))
@@ -215,6 +234,7 @@ export class ARTrackerClient {
 
     this.rt = rt
     this.emit(rt, { type: 'session', name: 'session_start', attributes: collectDeviceMeta() })
+    if (cfg.replay.enabled) this.startReplayInternal(rt, false)
 
     const buffered = this.pre
     this.pre = []
@@ -225,6 +245,32 @@ export class ARTrackerClient {
       .then((s) => s.prune({ maxBytes: cfg.offline.maxQueueBytes, maxAgeMs: cfg.offline.maxAgeMs }))
       .then(() => this.startDrain(rt))
       .catch(() => {})
+  }
+
+  private startReplayInternal(rt: Runtime, force: boolean): void {
+    const driver = rt.cfg.replay.driver
+    if (!driver) {
+      if (rt.cfg.debug || force) console.warn('[artracker] replay needs a driver: import { replay } from "@artracker/browser/replay"')
+      return
+    }
+    if (rt.replayStop || rt.replayStarting) return
+    rt.replayStarting = true
+    driver
+      .start(rt.ctx, { force })
+      .then((stop) => {
+        rt.replayStarting = false
+        if (rt.killed) stop()
+        else rt.replayStop = stop
+      })
+      .catch(() => {
+        rt.replayStarting = false
+      })
+  }
+
+  private stopReplayInternal(rt: Runtime): void {
+    const stop = rt.replayStop
+    rt.replayStop = undefined
+    if (stop) safeCall(stop, rt.cfg.debug, 'replay stop')
   }
 
   private listen(rt: Runtime, target: EventTarget, type: string, fn: () => void): void {
@@ -240,7 +286,7 @@ export class ARTrackerClient {
     // Sampling per sesi hanya untuk event biasa; log/error dan item sesi tidak pernah dibuang.
     if (input.type === 'event' && !input.name?.startsWith('$') && !sessionSampled(rt.session.id, rt.cfg.sampleRate)) return
     const item = createItem({ ...input, sessionId, userId: rt.user.userId })
-    const out = redactItem(item, rt.cfg)
+    const out = redactItem(item, rt.cfg, { skipAttributes: input.skipRedaction })
     if (out) rt.bus.emit(out)
   }
 
@@ -349,6 +395,7 @@ export class ARTrackerClient {
 
   private teardown(rt: Runtime): void {
     rt.killed = true
+    this.stopReplayInternal(rt)
     rt.queue.stop()
     if (rt.retryTimer) clearTimeout(rt.retryTimer)
     for (const fn of rt.cleanups) safeCall(fn, false, 'cleanup')

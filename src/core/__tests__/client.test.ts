@@ -308,3 +308,72 @@ test('init memasang interceptor jaringan; network.enabled=false tidak memasangny
   c2.init({ ...opts, network: { enabled: false } })
   expect(globalThis.fetch).toBe(fetchMock)
 })
+
+describe('replay driver', () => {
+  const makeDriver = () => {
+    const stop = vi.fn()
+    const driver = { start: vi.fn(async (_ctx?: unknown, _opts?: { force?: boolean }) => stop) }
+    return { driver, stop }
+  }
+
+  test('replay.enabled dengan driver memulai perekaman saat init dan shutdown menghentikannya', async () => {
+    const { driver, stop } = makeDriver()
+    const c = make()
+    c.init({ ...opts, replay: { enabled: true, sampleRate: 1, driver } })
+    await vi.waitFor(() => expect(driver.start).toHaveBeenCalledTimes(1))
+    expect(driver.start.mock.calls[0]?.[1]).toEqual({ force: false })
+    c.shutdown()
+    expect(stop).toHaveBeenCalled()
+  })
+
+  test('replay.enabled false tidak memulai; startReplay() manual memulai dengan force dan stopReplay() menghentikan', async () => {
+    const { driver, stop } = makeDriver()
+    const c = make()
+    c.init({ ...opts, replay: { driver } })
+    expect(driver.start).not.toHaveBeenCalled()
+    c.startReplay()
+    await vi.waitFor(() => expect(driver.start).toHaveBeenCalledTimes(1))
+    expect(driver.start.mock.calls[0]?.[1]).toEqual({ force: true })
+    c.startReplay() // idempoten
+    await Promise.resolve()
+    expect(driver.start).toHaveBeenCalledTimes(1)
+    c.stopReplay()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  test('replay.enabled tanpa driver tidak melempar dan memberi peringatan', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const c = make()
+    expect(() => c.init({ ...opts, replay: { enabled: true }, debug: true })).not.toThrow()
+    expect(() => c.startReplay()).not.toThrow()
+    expect(warn.mock.calls.some((a) => String(a[0]).includes('@artracker/browser/replay'))).toBe(true)
+  })
+
+  test('rotasi sesi (reset) memulai ulang perekaman untuk sesi baru', async () => {
+    const { driver, stop } = makeDriver()
+    const c = make()
+    c.init({ ...opts, replay: { enabled: true, sampleRate: 1, driver } })
+    await vi.waitFor(() => expect(driver.start).toHaveBeenCalledTimes(1))
+    c.reset()
+    await vi.waitFor(() => expect(driver.start).toHaveBeenCalledTimes(2))
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  test('chunk dengan skipRedaction melewati walker: objek dalam tidak diganti [max-depth]', async () => {
+    let captured: { emit: (i: never) => void } | undefined
+    const driver = {
+      start: vi.fn(async (ctx: { emit: (i: never) => void }) => {
+        captured = ctx
+        return () => {}
+      }),
+    }
+    const c = make()
+    c.init({ ...opts, replay: { enabled: true, sampleRate: 1, driver } })
+    await vi.waitFor(() => expect(captured).toBeDefined())
+    captured?.emit({ type: 'session', name: 'replay_chunk', skipRedaction: true, attributes: { events: [{ a: { b: { c: { d: { e: { f: { g: 'dalam' } } } } } } }] } } as never)
+    await c.flush()
+    const chunk = sent().find((i) => i.name === 'replay_chunk')
+    expect(JSON.stringify(chunk?.attributes)).toContain('dalam')
+    expect(JSON.stringify(chunk?.attributes)).not.toContain('[max-depth]')
+  })
+})

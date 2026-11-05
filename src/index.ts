@@ -20,4 +20,3 @@ export const ARTracker = {
   shutdown: (): void => client.shutdown(),
 }
 
-export default ARTracker

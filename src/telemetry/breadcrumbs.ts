@@ -1,5 +1,5 @@
 import type { TelemetryContext } from '../core/client'
-import type { ResolvedConfig } from '../types'
+import { isMaskedArea } from '../privacy/masking'
 import { redactString } from '../privacy/redactor'
 
 export interface Breadcrumb {
@@ -26,7 +26,6 @@ export class BreadcrumbBuffer {
 
 const MAX_TEXT = 64
 const CLICKABLE = 'a,button,[role="button"],input,select,textarea,label,summary'
-const SAFE_CLASS = /^[\w-]+$/
 
 function selectorOf(el: Element): string {
   const parts: string[] = []
@@ -43,17 +42,6 @@ function selectorOf(el: Element): string {
     cur = cur.parentElement
   }
   return redactString(parts.join(' > '))
-}
-
-/** Elemen di dalam area yang ditandai mask/block tidak boleh mengungkap teksnya. Gagal => dianggap ter-mask. */
-function isMasked(el: Element, cfg: ResolvedConfig): boolean {
-  try {
-    const sels = ['[data-artracker-mask]', '[data-artracker-block]']
-    for (const c of [cfg.privacy.blockClass, cfg.privacy.maskTextClass]) if (c && SAFE_CLASS.test(c)) sels.push('.' + c)
-    return el.closest(sels.join(',')) !== null
-  } catch {
-    return true
-  }
 }
 
 const isFormField = (el: Element): boolean => /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
@@ -75,7 +63,7 @@ export function installBreadcrumbListeners(ctx: TelemetryContext): () => void {
       if (!raw) return
       const el = raw.closest(CLICKABLE) ?? raw
       const data: Record<string, unknown> = { tag: el.tagName.toLowerCase(), selector: selectorOf(el) }
-      if (!isFormField(el) && !isMasked(el, ctx.cfg)) {
+      if (!isFormField(el) && !isMaskedArea(el, ctx.cfg)) {
         const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT)
         if (text) data.text = redactString(text)
         const aria = el.getAttribute('aria-label')
