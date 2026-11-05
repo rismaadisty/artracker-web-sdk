@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>artracker — contoh vanilla</title>
+  </head>
+  <body>
+    <h1>artracker — contoh vanilla</h1>
+    <p>Jalankan <code>pnpm build</code> dulu, ganti <code>appKey</code>/<code>endpoint</code>, lalu buka halaman ini lewat server statis.</p>
+
+    <button id="track">track('demo_clicked')</button>
+    <button id="error">Lempar error</button>
+    <button id="fetch">fetch</button>
+    <button id="nav">pushState</button>
+    <div data-artracker-mask>Isi di sini disamarkan pada replay.</div>
+
+    <script src="../../dist/index.global.js"></script>
+    <script>
+      ARTracker.init({
+        appKey: 'art_live_REPLACE_ME_0000000000000000000000',
+        endpoint: 'http://localhost:8080/api/v1/ingest',
+        debug: true,
+      })
+      document.getElementById('track').onclick = () => ARTracker.track('demo_clicked', { at: Date.now() })
+      document.getElementById('error').onclick = () => { throw new Error('demo error') }
+      document.getElementById('fetch').onclick = () => fetch('/does-not-exist').catch(() => {})
+      document.getElementById('nav').onclick = () => history.pushState({}, '', '/demo-' + Date.now())
+    </script>
+  </body>
+</html>

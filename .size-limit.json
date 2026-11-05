@@ -1,0 +1,4 @@
+[
+  { "name": "@artracker/browser (entry)", "path": "dist/index.js", "limit": "18 kB", "gzip": true },
+  { "name": "@artracker/browser/replay (adapter)", "path": "dist/replay.js", "limit": "4 kB", "gzip": true }
+]
