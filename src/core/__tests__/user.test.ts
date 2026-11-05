@@ -6,9 +6,16 @@ beforeEach(() => {
 
 test('userId bertahan di localStorage antar instance', () => {
   new UserStore().identify('usr_42', { plan: 'pro' })
-  const b = new UserStore()
-  expect(b.userId).toBe('usr_42')
-  expect(b.traits).toEqual({ plan: 'pro' })
+  expect(new UserStore().userId).toBe('usr_42')
+})
+
+test('traits hanya di memori: tidak pernah ditulis ke localStorage (bisa berisi PII)', () => {
+  const u = new UserStore()
+  u.identify('usr_42', { email: 'budi@example.com', plan: 'pro' })
+  expect(u.traits).toEqual({ email: 'budi@example.com', plan: 'pro' })
+  const everything = JSON.stringify(Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])))
+  expect(everything).not.toContain('budi@example.com')
+  expect(new UserStore().traits).toBeUndefined()
 })
 
 test('userId dipotong ke 128 karakter', () => {

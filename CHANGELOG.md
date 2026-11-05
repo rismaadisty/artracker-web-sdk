@@ -10,6 +10,8 @@ Rilis pertama `@artracker/browser`.
 - Telemetri otomatis: error & `unhandledrejection` (dedup + circuit breaker), resource error, `fetch`/XHR, breadcrumbs klik/input/navigasi, `page_view` SPA.
 - Transport: batching, IndexedDB (+fallback localStorage), gzip di Web Worker (+fallback), `sendBeacon` saat unload, backoff + `Retry-After`, `401` mematikan SDK, `413` memecah batch.
 - Session replay (opt-in) lewat `@artracker/browser/replay` + `rrweb` (optional peer): masking DOM, chunk ≤ 24 KB.
-- Ukuran (min+gzip): entry 11,5 kB, adapter replay 2,5 kB; rrweb ±57 kB di luar entry.
+- Ukuran (min+gzip): entry 11,8 kB, adapter replay 2,9 kB; rrweb ±57 kB di luar entry.
+
+Perbaikan dari review akhir (sebelum rilis): fallback storage ke memori, `<input type=hidden>` dan PII pada atribut elemen di replay, batas ukuran dalam byte UTF-8, kuota IndexedDB saat sesi berjalan, `session_start` hanya untuk sesi baru + `page_view` awal, traits tidak lagi ditulis ke `localStorage`, race `disable()`/`enable()`.
 
 Belum ada: `privacy.hashEmails`, `network.captureBodies`, Web Vitals, pengujian di browser sungguhan, verifikasi terhadap backend hidup.

@@ -18,6 +18,8 @@ export class SessionManager {
   private state: SessionState
   private readonly store: KeyValueStore
   private readonly listeners: RotateListener[] = []
+  /** true bila sesi dibuat saat konstruksi (bukan dipulihkan dari storage, mis. muat ulang halaman). */
+  readonly startedNew: boolean
 
   constructor(
     cfg: ResolvedConfig,
@@ -25,7 +27,9 @@ export class SessionManager {
   ) {
     this.store = safeStorage(cfg.crossTabSession ? 'local' : 'session')
     const restored = this.read()
-    this.state = restored && !this.expired(restored) ? restored : this.create()
+    const reuse = restored !== null && !this.expired(restored)
+    this.state = reuse ? restored : this.create()
+    this.startedNew = !reuse
     this.persist()
   }
 

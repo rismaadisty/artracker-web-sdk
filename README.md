@@ -2,10 +2,10 @@
 
 SDK Web/Browser untuk [artracker](https://github.com/tiofani03/artracker): menangkap **error, request jaringan, event kustom, dan (opsional) session replay**, lalu mengirimnya ke `POST /api/v1/ingest` dengan redaksi PII otomatis dan antrean offline.
 
-- **Ringan** — entry utama **11,5 kB** min+gzip (ukuran terukur, lihat [Ukuran bundle](#ukuran-bundle)).
+- **Ringan** — entry utama **11,8 kB** min+gzip (ukuran terukur, lihat [Ukuran bundle](#ukuran-bundle)).
 - **Tanpa dependency runtime.** `rrweb` hanya dibutuhkan bila Anda mengaktifkan replay.
 - **Tidak pernah melempar** error ke aplikasi Anda; aman dipanggil di server (SSR no-op).
-- **PII disamarkan sebelum menyentuh disk atau jaringan.**
+- **PII disamarkan sebelum menyentuh antrean, IndexedDB, atau jaringan** (lihat [Privasi](#privasi) untuk batasnya).
 
 ## Mulai cepat
 
@@ -41,7 +41,7 @@ Panggilan sebelum `init()` (mis. dari skrip `async`) ditampung — maksimum 100 
 | Method | Keterangan |
 | --- | --- |
 | `init(options)` | Idempoten. Opsi tidak valid → peringatan di console, tidak melempar. |
-| `identify(userId, traits?)` | Menyetel `user_id` (maks 128 karakter) dan mengirim event `$identify`. |
+| `identify(userId, traits?)` | Menyetel `user_id` (maks 128 karakter; disimpan di `localStorage`) dan mengirim event `$identify`. `traits` hanya di memori — tidak ditulis ke disk. |
 | `track(name, properties?)` | Event kustom (`type: event`). |
 | `log(level, message, attributes?)` | `debug \| info \| warn \| error \| fatal`. |
 | `captureException(error, context?)` | Mencatat error secara manual (stack, fingerprint, breadcrumbs). |
@@ -73,7 +73,7 @@ Panggilan sebelum `init()` (mis. dari skrip `async`) ditampung — maksimum 100 
 | `network.captureBodies` | `false` | **Dicadangkan.** Body request/response tidak pernah dibaca. |
 | `breadcrumbs.limit` | `30` | Ukuran ring buffer (1–200). |
 | `batch` | `{ maxItems: 50, maxBytes: 131072, flushIntervalMs: 5000 }` | Dijepit ke 1–50 item, 1–128 KB, 250 ms–60 s. |
-| `offline` | `{ maxQueueBytes: 5 MB, maxAgeMs: 7 hari }` | Dibersihkan saat `init()`. |
+| `offline` | `{ maxQueueBytes: 5 MB, maxAgeMs: 7 hari }` | Kuota ditegakkan saat batch ditulis (batch replay dibuang lebih dulu; error aplikasi terakhir); umur dibersihkan saat `init()`. |
 | `crossTabSession` | `false` | `true` → sesi dibagi antar-tab lewat `localStorage`. |
 | `respectDoNotTrack` | `false` | `true` → tidak aktif bila browser mengirim DNT. |
 | `workerUrl` | — | URL worker gzip sendiri, untuk CSP yang melarang `blob:`. |
@@ -124,18 +124,17 @@ Redaksi berjalan **sebelum** item masuk ke antrean, IndexedDB, maupun jaringan.
 
 **Pada replay (DOM):**
 
-- Semua input di-mask (`maskAllInputs`). Field `type="password"`, `autocomplete="cc-*"`/`*-password`, serta `name`/`id` berisi `card|cvv|cvc|ssn|nik|pin|otp` **selalu** di-mask, bahkan bila `maskAllInputs: false`.
+- Semua input di-mask (`maskAllInputs`), termasuk `<input type="hidden">`. Field `type="password"` / `type="hidden"`, `autocomplete="cc-*"`/`*-password`, serta `name`/`id` berisi `card|cvv|cvc|ssn|nik|pin|otp` **selalu** di-mask, bahkan bila `maskAllInputs: false`.
 - `data-artracker-mask` — isi teks/input di dalamnya menjadi `*`.
 - `data-artracker-block` — elemen diganti placeholder.
 - `data-artracker-unmask` — membuka input **biasa** (tidak pernah field sensitif; `mask` menang atas `unmask`).
-- Setiap text node dilewatkan ke redaksi PII yang sama dengan di atas.
+- Setiap text node **dan nilai atribut elemen** (`title`, `alt`, `placeholder`, `data-*`, …) dilewatkan ke redaksi PII yang sama dengan di atas. Redaksi berbasis pola: teks bebas di atribut yang tidak mengikuti pola **tetap terekam**.
 - Breadcrumb klik **tidak pernah** mencatat nilai input — hanya status `filled`/`cleared`.
 
 **Tidak tercakup — perhatikan:**
 
 - Nilai `user_id` dari `identify()` dikirim apa adanya. Jangan memakai email sebagai id bila itu sensitif.
 - Redaksi berbasis pola tidak mengenali nama, alamat, atau teks bebas yang tidak mengikuti pola di atas. Gunakan `data-artracker-mask` / `beforeSend` untuk itu.
-- Pada replay, **atribut elemen** selain query param URL sensitif (mis. `data-*`, `title`, `alt`) direkam apa adanya — rrweb 2.x tidak menyediakan hook untuk atribut.
 - Request jaringan dicatat untuk **setiap** panggilan (termasuk 2xx, level `info`). Pada aplikasi yang ramai, gunakan `network.ignoreUrls` agar tidak menghabiskan kuota event project (default backend: 1000 event/s).
 
 ## Yang dikumpulkan otomatis
@@ -146,18 +145,19 @@ Redaksi berjalan **sebelum** item masuk ke antrean, IndexedDB, maupun jaringan.
 | Gagal memuat `img`/`script`/`link` | `log` / `warn`, `resource_error` |
 | `fetch` & XHR | `log`, `http_request` — method, URL ter-scrub, status, `duration_ms`. Level: `<400` info, `4xx` warn, `5xx`/gagal error. |
 | Perpindahan route (`pushState`, `replaceState`, `popstate`, `hashchange`) | `event`, `page_view` |
-| Awal/akhir sesi | `session`, `session_start` (metadata perangkat) / `session_end` |
+| Muat halaman | `event`, `page_view` awal (juga untuk situs multi-halaman yang tidak memakai `pushState`) |
+| Awal/akhir sesi | `session`, `session_start` (metadata perangkat; hanya untuk sesi **baru**, bukan setiap muat ulang) / `session_end` |
 
 Sesi berganti setelah **30 menit idle**, **4 jam**, atau `reset()`.
 
 ## Pengiriman & offline
 
-- Batch ≤ 50 item / 128 KB / 5 detik; selalu ditulis ke **IndexedDB** dulu (fallback `localStorage` 1 MB), lalu dikirim — batch tertua lebih dulu, maksimum 5 batch/detik.
-- Gzip dikerjakan di **Web Worker** (`CompressionStream`); bila tidak tersedia → main thread → JSON polos.
+- Batch ≤ 50 item / 128 KB / 5 detik; ditulis ke **IndexedDB** dulu (fallback `localStorage` 1 MB → **memori** bila semua storage diblokir), lalu dikirim — batch tertua lebih dulu, maksimum 5 batch/detik. **Pengecualian:** saat tab disembunyikan/ditutup, `sendBeacon` dicoba lebih dulu dan batch baru disimpan hanya bila beacon gagal.
+- **Gzip** dikerjakan di **Web Worker** (`CompressionStream`); bila tidak tersedia → main thread → JSON polos. `JSON.stringify` dan `fetch` tetap berjalan di main thread (worker hanya mengompres).
 - Saat tab disembunyikan / ditutup: `navigator.sendBeacon` (key lewat `?api_key=`).
-- `429`/`503`/gagal jaringan: coba lagi dengan backoff eksponensial (hormati `Retry-After`). Setelah 8 kegagalan beruntun tidak ada retry otomatis lagi; pengiriman lanjut saat event `online` atau `flush()` setelah jeda berakhir.
+- `429`/`503`/gagal jaringan: coba lagi dengan backoff eksponensial. Header `Retry-After` dihormati **hanya bila terbaca**: pada request lintas-origin browser menyembunyikannya kecuali backend mengirim `Access-Control-Expose-Headers: Retry-After` (backend `artracker` saat ini **belum** — SDK memakai backoff lokalnya). Setelah 8 kegagalan beruntun tidak ada retry otomatis lagi; pengiriman lanjut saat event `online` atau `flush()` setelah jeda berakhir.
 - `401` (key dicabut): SDK **berhenti** untuk sesi itu. `400`: batch dibuang. `413`: batch dipecah dua.
-- Setiap item membawa `id` UUIDv7 yang tetap pada retry, jadi pengiriman ulang tidak menggandakan baris.
+- Setiap item membawa `id` UUIDv7 yang **tetap pada retry**, sehingga backend *dapat* men-dedup. **Backend saat ini belum men-dedup** (insert tanpa `ON CONFLICT`, PK memuat `received_at`): retry setelah respons `202` yang hilang dapat menghasilkan baris ganda.
 
 ## Framework
 
@@ -192,8 +192,8 @@ Diukur dengan `size-limit` (min+gzip), gate di CI:
 
 | Artefak | Ukuran | Batas |
 | --- | --- | --- |
-| `@artracker/browser` (entry) | **11,5 kB** | 18 kB |
-| `@artracker/browser/replay` (adapter, tanpa rrweb) | **2,5 kB** | 4 kB |
+| `@artracker/browser` (entry) | **11,8 kB** | 18 kB |
+| `@artracker/browser/replay` (adapter, tanpa rrweb) | **2,9 kB** | 4 kB |
 | `rrweb` (record-only, peer) | ±57 kB | di luar entry |
 
 Total dengan replay aktif ≈ **71 kB**. Target `< 45 kB` dipenuhi oleh **entry**, bukan oleh total dengan replay.
@@ -202,7 +202,7 @@ Total dengan replay aktif ≈ **71 kB**. Target `< 45 kB` dipenuhi oleh **entry*
 
 Target kompilasi `es2020`. Fitur yang dipakai dengan fallback: `CompressionStream` (tanpa itu → JSON polos), `Worker` (tanpa itu → main thread), IndexedDB (tanpa itu → `localStorage` → memori), `sendBeacon`.
 
-> **Jujur soal pengujian:** seluruh tes (≈250) berjalan di **jsdom** dengan `fake-indexeddb`; rrweb nyata dijalankan di jsdom. SDK **belum diuji di browser sungguhan** (tidak ada pengukuran long-task/UI-thread) dan **belum diuji terhadap backend hidup** — tes integrasinya ada tetapi dilewati tanpa backend (lihat di bawah).
+> **Jujur soal pengujian:** seluruh tes (≈270) berjalan di **jsdom** dengan `fake-indexeddb`; rrweb nyata dijalankan di jsdom. SDK **belum diuji di browser sungguhan** (tidak ada pengukuran long-task/UI-thread) dan **belum diuji terhadap backend hidup** — tes integrasinya ada tetapi dilewati tanpa backend (lihat di bawah).
 
 ## Pengembangan
 

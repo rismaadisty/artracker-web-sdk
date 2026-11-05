@@ -1,3 +1,5 @@
+import { utf8Length } from '../core/bytes'
+import { redactString } from '../privacy/redactor'
 import { redactQueryParams, SENSITIVE_PARAM_HINT } from '../privacy/urlScrubber'
 
 export interface ReplayChunk {
@@ -27,6 +29,44 @@ function makeChunk(seq: number, events: unknown[]): ReplayChunk {
   }
 }
 
+const MAX_ATTR_VALUE = 2000
+
+/**
+ * Meredaksi PII pada nilai atribut elemen (title, alt, placeholder, data-*, ...) di salinan event. rrweb 2.x tak punya
+ * hook atribut, dan event aslinya dipakai bersama mirror internal rrweb sehingga TIDAK boleh dimutasi. Iteratif agar DOM
+ * yang dalam tidak menjebol stack. `_cssText`/`rr_*`/nilai >2000 karakter dilewati (CSS, data URI: mahal dan rawan rusak).
+ */
+function redactAttributes(root: unknown): void {
+  const stack: unknown[] = [root]
+  while (stack.length > 0) {
+    const v = stack.pop()
+    if (Array.isArray(v)) {
+      for (const x of v) if (x && typeof x === 'object') stack.push(x)
+    } else if (v && typeof v === 'object') {
+      const obj = v as Record<string, unknown>
+      for (const k of Object.keys(obj)) {
+        const val = obj[k]
+        if (k === 'attributes' && val && typeof val === 'object' && !Array.isArray(val)) {
+          const attrs = val as Record<string, unknown>
+          for (const a of Object.keys(attrs)) {
+            const av = attrs[a]
+            if (typeof av === 'string' && av.length <= MAX_ATTR_VALUE && a !== '_cssText' && !a.startsWith('rr_')) attrs[a] = redactString(av)
+          }
+        }
+        if (val && typeof val === 'object') stack.push(val)
+      }
+    }
+  }
+}
+
+const FULL_SNAPSHOT_TYPE = 2
+const INCREMENTAL_TYPE = 3
+const MUTATION_SOURCE = 0
+const carriesAttributes = (e: unknown): boolean => {
+  const ev = e as { type?: unknown; data?: { source?: unknown } } | null
+  return ev?.type === FULL_SNAPSHOT_TYPE || (ev?.type === INCREMENTAL_TYPE && ev.data?.source === MUTATION_SOURCE)
+}
+
 /**
  * Memecah event rrweb menjadi chunk yang masing-masing <= maxBytes setelah serialisasi (di bawah batas 32 KB backend,
  * yang jika dilanggar mengganti SELURUH attributes dengan {"_truncated":true}). Event tunggal yang terlalu besar
@@ -51,7 +91,11 @@ export function chunkEvents(events: unknown[], maxBytes: number, seqStart: numbe
     try {
       json = JSON.stringify(raw)
       if (json === undefined) continue
-      if (SENSITIVE_PARAM_HINT.test(json)) {
+      if (carriesAttributes(raw)) {
+        ev = JSON.parse(json) // salinan: event asli milik rrweb tidak boleh berubah
+        redactAttributes(ev)
+        json = JSON.stringify(ev)
+      } else if (SENSITIVE_PARAM_HINT.test(json)) {
         json = redactQueryParams(json)
         ev = JSON.parse(json)
       }
@@ -59,15 +103,16 @@ export function chunkEvents(events: unknown[], maxBytes: number, seqStart: numbe
       continue // tidak dapat diserialisasi (sirkular dsb.)
     }
 
-    if (json.length + OVERHEAD > maxBytes) {
+    const size = utf8Length(json) // backend menghitung byte, bukan karakter JS
+    if (size + OVERHEAD > maxBytes) {
       close()
       const e = raw as { type?: unknown } | null
-      out.push(makeChunk(seq++, [{ type: e?.type, timestamp: tsOf(raw) ?? Date.now(), oversized: true, original_bytes: json.length }]))
+      out.push(makeChunk(seq++, [{ type: e?.type, timestamp: tsOf(raw) ?? Date.now(), oversized: true, original_bytes: size }]))
       continue
     }
-    if (curBytes + json.length + 1 > maxBytes) close()
+    if (curBytes + size + 1 > maxBytes) close()
     cur.push(ev)
-    curBytes += json.length + 1
+    curBytes += size + 1
   }
   close()
   return out

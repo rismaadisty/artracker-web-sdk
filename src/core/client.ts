@@ -115,7 +115,12 @@ export class ARTrackerClient {
     const rt = this.rt
     if (!rt) return
     safeCall(() => {
-      void rt.store.then((s) => s.prune({ maxBytes: 0, maxAgeMs: 0 })).catch(() => {})
+      // Snapshot id saat ini lalu hapus HANYA itu: prune(0,0) async bisa menghapus batch yang ditulis setelah enable().
+      void rt.store
+        .then(async (s) => {
+          for (const b of await s.listPending()) await s.delete(b.id)
+        })
+        .catch(() => {})
       this.teardown(rt)
     }, rt.cfg.debug, 'disable')
     this.rt = undefined
@@ -233,7 +238,7 @@ export class ARTrackerClient {
       bus,
       sender: new Sender(cfg),
       breadcrumbs,
-      store: createBatchStore(),
+      store: createBatchStore({ capBytes: cfg.offline.maxQueueBytes }),
       extraContext: {},
       cleanups: [],
       puts: new Set(),
@@ -284,7 +289,8 @@ export class ARTrackerClient {
     if (cfg.network.enabled) rt.cleanups.push(installNetworkInterceptors(rt.ctx))
 
     this.rt = rt
-    this.emit(rt, { type: 'session', name: 'session_start', attributes: collectDeviceMeta() })
+    // Sesi yang dipulihkan (muat ulang halaman) bukan sesi baru: jangan menggandakan session_start.
+    if (session.startedNew) this.emit(rt, { type: 'session', name: 'session_start', attributes: collectDeviceMeta() })
     if (cfg.replay.enabled) this.startReplayInternal(rt, false)
 
     const buffered = this.pre

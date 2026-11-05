@@ -99,7 +99,7 @@ Karena itu SDK menyalin metadata perangkat/halaman ke `attributes` pada item
 
 | Field | Tipe | Aturan |
 | --- | --- | --- |
-| `id` | string | UUID. Jika valid dipakai apa adanya; jika kosong/invalid backend membuat UUIDv7. **SDK selalu mengisi UUIDv7 sendiri** agar retry idempoten |
+| `id` | string | UUID. Jika valid dipakai apa adanya; jika kosong/invalid backend membuat UUIDv7. **SDK selalu mengisi UUIDv7 sendiri** agar `id` stabil pada retry (backend belum men-dedup, lihat §12) |
 | `type` | string | **Hanya** `event`, `log`, `session`. Nilai lain → item **di-drop diam-diam** |
 | `name` | string | ≤255 |
 | `level` | string | Hanya berlaku untuk `type:"log"`; valid: `debug,info,warn,error,fatal`; invalid → `info`. Untuk tipe lain dipaksa kosong |
@@ -138,9 +138,14 @@ dikirim sebagai item tersendiri.
 | `400` | JSON invalid / `items` kosong / >500 item | **Drop permanen** (bug SDK), catat di debug log |
 | `401` | Key hilang/invalid | **Hentikan SDK** (kill-switch sesi), jangan retry — mencegah badai request |
 | `413` | Payload terlalu besar | Pecah batch jadi dua; jika satu item tetap >batas → drop item itu |
-| `429` | Rate limit | Hormati `Retry-After`, jeda global, batch tetap pending |
+| `429` | Rate limit | Hormati `Retry-After` **bila terbaca** (lihat catatan CORS di bawah), jeda global, batch tetap pending |
 | `503` | Buffer worker penuh (`Retry-After: 5`) | Sama seperti 429 |
 | Network error / offline | — | Batch tetap pending di IndexedDB, backoff eksponensial |
+
+> **Catatan CORS (ditemukan saat review, 2026-11-05):** konfigurasi CORS ingest di `cmd/api/main.go` tidak memiliki
+> `ExposeHeaders`. `Retry-After` bukan header yang di-safelist, sehingga `response.headers.get('Retry-After')` bernilai
+> `null` pada request lintas-origin dan SDK memakai backoff lokalnya. Rekomendasi backend:
+> `ExposeHeaders: "Retry-After"`.
 
 ## 11. Penyimpanan & Pembacaan
 
@@ -161,8 +166,8 @@ Endpoint baca untuk verifikasi manual saat pengembangan:
 
 ## 12. Hal yang TIDAK boleh diasumsikan SDK
 
-- Tidak ada dedup di sisi server selain pemakaian ulang `id` → SDK yang bertanggung jawab atas
-  idempotensi (UUIDv7 dibuat sekali, dipakai ulang pada setiap retry).
+- **Tidak ada dedup di sisi server**, juga tidak lewat `id`: insert memakai `pgx.CopyFrom` tanpa `ON CONFLICT` dan PK `(received_at, id, project_id)` memuat `received_at`, jadi retry yang diterima ulang (mis. `202` hilang di jaringan) membuat baris ganda. `id` UUIDv7 yang stabil memungkinkan dedup di masa depan → SDK yang bertanggung jawab atas
+  dedup di masa depan; SDK membuat UUIDv7 sekali dan memakainya ulang pada setiap retry.
 - Tidak ada validasi skema `attributes` → SDK yang menjaga struktur & redaksi PII.
 - Tidak ada kompresi balik / respons berisi konfigurasi → tidak ada remote config di iterasi ini.
 - `202` **bukan** jaminan data tersimpan (fire-and-forget), hanya jaminan diterima.

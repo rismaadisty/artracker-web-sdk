@@ -19,8 +19,20 @@ beforeEach(() => {
   emit = vi.fn()
   buf = new BreadcrumbBuffer(30)
   off = install()
+  emit.mockClear() // abaikan page_view awal; diuji terpisah di bawah
 })
 afterEach(() => off())
+
+test('install memancarkan page_view awal dengan to = URL saat ini (MPA tidak punya pushState)', () => {
+  off()
+  emit.mockClear()
+  off = install()
+  const [c] = calls()
+  expect(emit).toHaveBeenCalledTimes(1)
+  expect(c?.name).toBe('page_view')
+  expect(c?.attributes.from).toBe('')
+  expect(c?.attributes.to).toContain('/start')
+})
 
 test('pushState memancarkan event page_view dengan from dan to', () => {
   history.pushState({ a: 1 }, '', '/products?id=7')

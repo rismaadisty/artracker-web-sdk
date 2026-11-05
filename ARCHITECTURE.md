@@ -17,7 +17,7 @@ Next.js, atau vanilla JS dengan konfigurasi minimal tiga baris, dan mengirim tel
 | AC dari issue | Cara dipenuhi | Cara diukur |
 | --- | --- | --- |
 | Ukuran <45 kB (min+gzip) | Entry bundle ≤18 kB; adapter replay ≤4 kB (lazy); `rrweb` dimuat dinamis dan **tidak** dihitung dalam entry | `size-limit` sebagai gate di CI |
-| Tidak memblokir UI thread | Serialisasi + gzip + POST di Web Worker; pemrosesan chunk rrweb di `requestIdleCallback`; semua listener `passive` | Benchmark long-task (`PerformanceObserver` `longtask`), target: tidak ada task >50 ms saat merekam |
+| Tidak memblokir UI thread | Gzip di Web Worker (`JSON.stringify` dan `fetch` tetap di main thread); pemrosesan chunk rrweb di `requestIdleCallback`; semua listener `passive` | Benchmark long-task (`PerformanceObserver` `longtask`), target: tidak ada task >50 ms saat merekam |
 | PII otomatis disamarkan sebelum dikirim | Dua lapis: DOM masking (pra-serialisasi rrweb) + payload redaction (semua item, pra-persistence) | Corpus test PII + test "tidak ada data sensitif yang mendarat di IndexedDB" |
 
 ### Keputusan yang sudah difinalkan
@@ -65,7 +65,7 @@ Next.js, atau vanilla JS dengan konfigurasi minimal tiga baris, dan mengirim tel
 │   ├─ persistence.ts   IndexedDB store + fallback localStorage
 │   ├─ sender.ts        fetch keepalive → sendBeacon (unload) → retry
 │   ├─ backoff.ts       Exponential + jitter, menghormati Retry-After
-│   └─ worker/          Web Worker: gzip (CompressionStream) + POST
+│   └─ worker/          Web Worker: gzip (CompressionStream); POST tetap di main thread
 │
 └─ index.ts             Public entry (tree-shakeable, side-effect free)
 ```
@@ -80,7 +80,7 @@ Listener / API publik
    → queue (memori)
    → [flush trigger]
    → persistence (IndexedDB, status: pending)
-   → Web Worker (JSON.stringify → gzip)
+   → JSON.stringify (main thread) → Web Worker (gzip)
    → POST /api/v1/ingest
         ├─ 202  → hapus batch dari IndexedDB, reset backoff
         ├─ 429/503 → hormati Retry-After, batch tetap pending
@@ -141,7 +141,7 @@ ARTracker.shutdown()     // lepas semua patch & listener, flush terakhir
 | Format id | `ses_` + UUIDv7 tanpa tanda hubung (≤128 char, sesuai `MaxStringIDLen`) |
 | Penyimpanan | `sessionStorage` (per tab, sesuai issue); mirror opsional ke `localStorage` bila `crossTabSession: true` (default `false`) |
 | Rotasi | Idle 30 menit **atau** durasi maksimum 4 jam **atau** `reset()` |
-| Event sesi | Setiap sesi baru memancarkan `type:"session"`, `name:"session_start"` dengan attributes `{referrer, entry_url, screen, viewport, ua, lang, tz}` |
+| Event sesi | Setiap sesi **baru** (bukan sesi yang dipulihkan saat muat ulang halaman) memancarkan `type:"session"`, `name:"session_start"` dengan attributes `{referrer, entry_url, screen, viewport, ua, lang, tz}` |
 | Identitas | `user_id` persisten di `localStorage` (`ar_uid`); traits dikirim pada item `$identify` |
 | Ketahanan | Semua akses storage dibungkus try/catch (Safari private mode, storage diblokir) dengan fallback in-memory |
 
@@ -169,7 +169,7 @@ Alasan metadata perangkat ikut di `session_start`: backend hanya menyimpan
 - Sampling sesi bersifat deterministik: `hash(session_id) < replay.sampleRate`, diputuskan
   sekali per sesi sehingga rekaman tidak terpotong di tengah.
 - Pemrosesan chunk dijadwalkan lewat `requestIdleCallback` (fallback `setTimeout(…, 0)`);
-  serialisasi dan gzip terjadi di Web Worker.
+  gzip terjadi di Web Worker; `JSON.stringify` dan `fetch` di main thread.
 
 ### 4.2 Pemetaan ke skema backend
 
@@ -247,7 +247,7 @@ lebih baik kehilangan sebagian terkendali daripada seluruh `attributes` diganti
 | Breadcrumbs | Ring buffer 30 entri (configurable) | Tidak dikirim sebagai item tersendiri; dilampirkan ke attributes error dan `session_end` |
 | Navigation | Patch `pushState`/`replaceState` + `popstate` + `hashchange` | `event`, `name = "page_view"`, attributes `{from, to, referrer}` |
 | Click / input | Delegasi listener di `document` (capture, passive) | Breadcrumb `{tag, text (≤64, sudah diredaksi), selector, aria-label}` — **nilai input tidak pernah dicatat**, hanya status `filled` / `cleared` |
-| Web Vitals | Opsional (`vitals: false` default) via `PerformanceObserver` | `event`, `name = "web_vital"` |
+| Web Vitals | **Belum diimplementasikan di 0.1.0** (rencana: opsional, `vitals: false`, via `PerformanceObserver`) | `event`, `name = "web_vital"` |
 
 ### Guard rails
 
@@ -293,12 +293,12 @@ lebih baik kehilangan sebagian terkendali daripada seluruh `attributes` diganti
 | Aspek | Keputusan |
 | --- | --- |
 | Primary store | IndexedDB — database `artracker`, object store `batches`, `keyPath: "id"`, indeks `createdAt` |
-| Fallback | `localStorage` dengan prefix `ar_q_` dan cap 1 MB, dipakai bila IndexedDB diblokir |
-| Kuota | 5 MB / 7 hari (default, configurable) |
+| Fallback | `localStorage` (`ar_q_`, cap 1 MB) bila IndexedDB diblokir; lalu **memori** bila localStorage juga diblokir. `put` yang gagal di tengah sesi jatuh ke memori |
+| Kuota | 5 MB / 7 hari (default, configurable). Kuota ditegakkan saat put (total berjalan) dan saat `init()`; umur hanya saat `init()` |
 | Eviction | FIFO **dengan prioritas**: `replay_chunk` dibuang lebih dulu, lalu `event`, dan `log` level `error`/`fatal` dipertahankan paling akhir |
 | Replay saat start | `init()` membaca batch pending dan mengirim ulang dengan throttle maks 5 batch/detik agar tidak memicu limit 50 req/s |
 | Deteksi konektivitas | `online`/`offline` + `navigator.onLine` hanya sebagai hint; sumber kebenaran tetap hasil `fetch` |
-| Idempotensi | `item.id` UUIDv7 dibuat sekali di SDK dan dipakai ulang pada setiap retry, sehingga pengiriman ganda tidak menghasilkan baris duplikat di DB |
+| Idempotensi | `item.id` UUIDv7 dibuat sekali di SDK dan dipakai ulang pada setiap retry, sehingga backend *dapat* men-dedup. **Backend saat ini belum men-dedup** (`pgx.CopyFrom` tanpa `ON CONFLICT`, PK `(received_at, id, project_id)`): retry setelah `202` yang hilang dapat menggandakan baris. Perlu issue backend. |
 
 ### 6.4 Jalur unload
 
@@ -318,7 +318,7 @@ batch dipecah atau disimpan ke IndexedDB untuk dikirim pada sesi berikutnya.
 ### 6.5 Backoff
 
 `delay = min(30s × 2^n, 5 menit)` dengan jitter ±20%, direset setiap kali menerima `202`.
-Header `Retry-After` dari server selalu menang atas perhitungan lokal. Setelah 8 kegagalan
+Header `Retry-After` dari server menang atas perhitungan lokal **bila terbaca**. Pada request lintas-origin header ini tidak terbaca kecuali backend mengirim `Access-Control-Expose-Headers: Retry-After` (konfigurasi CORS ingest saat ini tidak), sehingga SDK jatuh ke backoff lokal. Setelah 8 kegagalan
 beruntun SDK masuk **mode hemat**: flush hanya dilakukan saat unload atau saat event `online`.
 
 ---
@@ -338,8 +338,8 @@ dan inline worker yang lebih ringkas.
 
 | Entry | Isi | Budget |
 | --- | --- | --- |
-| `@artracker/browser` | core + privacy + telemetry + transport | **≤ 18 kB** — aktual **11,5 kB** |
-| `@artracker/browser/replay` | adapter rrweb + chunker (**tanpa** rrweb) | ≤ 4 kB — aktual **2,5 kB** |
+| `@artracker/browser` | core + privacy + telemetry + transport | **≤ 18 kB** — aktual **11,8 kB** |
+| `@artracker/browser/replay` | adapter rrweb + chunker (**tanpa** rrweb) | ≤ 4 kB — aktual **2,9 kB** |
 | `rrweb` | optional peer, dimuat lazy | di luar budget entry — terukur **≈57 kB** (record-only) |
 
 Total dengan replay aktif ≈ **71 kB**: target <45 kB dipenuhi oleh **entry**, bukan oleh total (keputusan D1).
@@ -468,5 +468,12 @@ attributes item `session_start`.
 | 8 | NIK = 16 digit | NIK = 16 digit **berstruktur valid** | Aturan 16 digit buta bertabrakan dengan "16 digit gagal Luhn tetap utuh" |
 | 9 | `beforeSend` melempar → (tidak ditentukan) | Item **dibuang** (fail-closed) | Hook sering berupa scrubber PII milik pengguna |
 | 10 | `rrweb` ~30–40 kB | Terukur ≈57 kB gzip | Estimasi awal keliru |
+| 11 | Fallback storage IDB → localStorage | IDB → localStorage → **memori** | Review akhir: tanpa tier memori SDK tidak mengirim apa pun saat semua storage diblokir |
+| 12 | Batas 24 KB dihitung dalam karakter | Dihitung dalam **byte UTF-8** | Backend menghitung `len(raw)` dalam byte; teks non-Latin melewati 32 KB walau <24K karakter |
+| 13 | `session_start` pada setiap `init()`; `page_view` hanya saat pushState | `session_start` hanya untuk sesi baru; `page_view` awal saat install | Muat ulang/MPA menggandakan `session_start` dan tidak punya `page_view` |
+| 14 | `identify` menyimpan traits di localStorage | traits hanya di memori | Traits dapat berisi PII mentah; klaim "sebelum menyentuh disk" |
+| 15 | Replay: input `hidden` dan atribut tidak ditangani | `hidden` selalu di-mask; PII pada nilai atribut diredaksi di chunker (salinan, bukan event milik rrweb) | Review akhir: CSRF token / email di hidden input dan atribut bocor |
+| 16 | Web Vitals, serialisasi+POST di Worker | Belum ada Web Vitals; worker hanya gzip | Koreksi dokumen terhadap kode |
+| 17 | `Retry-After` selalu menang; retry idempoten | Hanya bila terbaca (CORS); backend belum dedup | Keduanya bergantung pada backend (`ExposeHeaders`, `ON CONFLICT`) — rekomendasi issue backend |
 
 Belum terverifikasi: perilaku di browser sungguhan (long-task / UI thread), dan integrasi terhadap backend hidup.

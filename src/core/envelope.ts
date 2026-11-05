@@ -1,4 +1,5 @@
 import type { Envelope, ItemType, LogLevel, RawItem, ResolvedConfig } from '../types'
+import { utf8Length } from './bytes'
 import { SDK_NAME, SDK_VERSION } from './context'
 import { uuidv7 } from './uuid'
 
@@ -33,9 +34,9 @@ export function fitAttributes(attrs: Record<string, unknown>): Record<string, un
   } catch {
     return { _artracker_unserializable: true }
   }
-  if (json.length <= MAX_ATTRIBUTE_BYTES) return attrs
+  const originalBytes = utf8Length(json)
+  if (originalBytes <= MAX_ATTRIBUTE_BYTES) return attrs
 
-  const originalBytes = json.length
   const sized = Object.entries(attrs)
     .map(([k, v]) => {
       let len: number
@@ -58,7 +59,7 @@ export function fitAttributes(attrs: Record<string, unknown>): Record<string, un
   for (const e of sized) {
     let size: number
     try {
-      size = JSON.stringify(marker()).length
+      size = utf8Length(JSON.stringify(marker()))
     } catch {
       size = Number.MAX_SAFE_INTEGER
     }

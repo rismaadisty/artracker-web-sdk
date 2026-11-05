@@ -82,3 +82,14 @@ test('tetap berfungsi saat sessionStorage diblokir', () => {
   expect(() => m.touch()).not.toThrow()
   vi.restoreAllMocks()
 })
+
+test('startedNew true untuk sesi baru dan false saat sesi dipulihkan dari storage', () => {
+  expect(new SessionManager(cfg, clock).startedNew).toBe(true)
+  expect(new SessionManager(cfg, clock).startedNew).toBe(false)
+})
+
+test('startedNew true lagi bila sesi tersimpan sudah kedaluwarsa', () => {
+  new SessionManager(cfg, clock)
+  t += 31 * MIN
+  expect(new SessionManager(cfg, clock).startedNew).toBe(true)
+})

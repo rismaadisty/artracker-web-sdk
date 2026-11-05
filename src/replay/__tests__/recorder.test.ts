@@ -132,3 +132,15 @@ test('rrweb yang tidak terpasang menghasilkan no-op, bukan error', async () => {
   vi.doUnmock('rrweb')
   vi.resetModules()
 })
+
+test('input hidden dan atribut ber-PII tidak bocor pada rrweb nyata', async () => {
+  document.body.innerHTML = `
+    <input type="hidden" name="csrf_token" value="HIDDENSECRET123">
+    <input type="hidden" name="user_email" value="budi@example.com">
+    <img alt="foto budi@example.com" title="kontak 081234567890" src="x.png">
+    <div data-owner="budi@example.com">konten</div>`
+  const stop = await startRecording(make({ enabled: true, sampleRate: 1 }, { maskAllInputs: false }))
+  stop()
+  const dump = JSON.stringify(chunks().map((c) => c.attributes))
+  for (const secret of ['HIDDENSECRET123', 'budi@example.com', '081234567890']) expect(dump, `bocor: ${secret}`).not.toContain(secret)
+})

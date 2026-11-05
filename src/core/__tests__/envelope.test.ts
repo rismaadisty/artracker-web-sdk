@@ -88,3 +88,24 @@ test('listener Bus yang melempar tidak menghentikan listener lain', () => {
   expect(() => bus.emit(createItem({ type: 'event', name: 'x' }))).not.toThrow()
   expect(ok).toHaveBeenCalled()
 })
+
+const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length
+
+test('batas 24 KB dihitung dalam BYTE UTF-8, bukan karakter (backend menghitung byte)', () => {
+  const i = createItem({ type: 'event', name: 'x', attributes: { teks: '日'.repeat(9000), kecil: 'ok' } }) // 9000 char = 27000 byte
+  expect(bytes(i.attributes)).toBeLessThanOrEqual(MAX_ATTRIBUTE_BYTES)
+  expect(i.attributes?._artracker_truncated).toBe(true)
+  expect(i.attributes?.kecil).toBe('ok')
+})
+
+test('emoji (4 byte/surrogate pair) juga dihitung sebagai byte', () => {
+  const i = createItem({ type: 'event', name: 'x', attributes: { e: '😀'.repeat(7000) } }) // 14000 char = 28000 byte
+  expect(bytes(i.attributes)).toBeLessThanOrEqual(MAX_ATTRIBUTE_BYTES)
+})
+
+test('utf8Length cocok dengan TextEncoder', async () => {
+  const { utf8Length } = await import('../bytes')
+  for (const s of ['', 'abc', 'é', '日本語', '😀', 'a😀é日', '\ud800']) {
+    expect(utf8Length(s)).toBe(new TextEncoder().encode(s).length)
+  }
+})

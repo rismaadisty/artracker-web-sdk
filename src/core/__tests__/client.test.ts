@@ -288,7 +288,7 @@ test('init memasang breadcrumb click dan page_view navigasi', async () => {
   history.pushState(null, '', '/next')
   c.captureException(new Error('after click'))
   await c.flush()
-  expect(sent().find((i) => i.name === 'page_view')?.attributes?.to).toContain('/next')
+  expect(sent().filter((i) => i.name === 'page_view').map((i) => String(i.attributes?.to)).some((t) => t.includes('/next'))).toBe(true)
   const crumbs = sent().find((i) => i.message === 'Error: after click')?.attributes?.breadcrumbs as Array<{ type: string }>
   expect(crumbs.map((b) => b.type)).toEqual(['click', 'navigation'])
 })
@@ -376,4 +376,40 @@ describe('replay driver', () => {
     expect(JSON.stringify(chunk?.attributes)).toContain('dalam')
     expect(JSON.stringify(chunk?.attributes)).not.toContain('[max-depth]')
   })
+})
+
+
+test('session_start TIDAK diulang saat halaman dimuat ulang dalam sesi yang sama, tetapi page_view tetap dikirim', async () => {
+  const a = make()
+  a.init(opts)
+  await a.flush()
+  a.shutdown()
+  const b = make()
+  b.init(opts)
+  await b.flush()
+  expect(sent().filter((i) => i.name === 'session_start')).toHaveLength(1)
+  expect(sent().filter((i) => i.name === 'page_view')).toHaveLength(2) // satu per muat halaman
+})
+
+test('page_view awal dikirim saat init', async () => {
+  const c = make()
+  c.init(opts)
+  await c.flush()
+  const pv = sent().find((i) => i.name === 'page_view')
+  expect(pv?.type).toBe('event')
+  expect(pv?.attributes).toHaveProperty('to')
+})
+
+// Review Focus #1 — kirim benar-benar terjadi, bukan sekadar "tidak melempar"
+test('pengiriman tetap terjadi saat IndexedDB DAN localStorage sama-sama diblokir', async () => {
+  vi.stubGlobal('indexedDB', undefined)
+  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+    throw new Error('SecurityError')
+  })
+  const c = make()
+  c.init(opts)
+  c.track('tetap_terkirim')
+  await c.flush()
+  expect(fetchMock).toHaveBeenCalled()
+  expect(sent().map((i) => i.name)).toContain('tetap_terkirim')
 })

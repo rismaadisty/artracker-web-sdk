@@ -35,6 +35,13 @@ export function installNavigationListeners(ctx: TelemetryContext): () => void {
   hist.pushState = patchedPush
   hist.replaceState = patchedReplace
 
+  // Halaman MPA tidak punya pushState: tanpa ini tidak ada page_view sama sekali pada muat halaman.
+  try {
+    ctx.emit({ type: 'event', name: 'page_view', attributes: { from: '', to: scrub(lastHref), referrer: scrub(document.referrer) } })
+  } catch {
+    /* diabaikan */
+  }
+
   window.addEventListener('popstate', record)
   window.addEventListener('hashchange', record)
 

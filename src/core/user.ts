@@ -1,7 +1,6 @@
 import { safeStorage, type KeyValueStore } from './storage'
 
 const UID_KEY = 'ar_uid'
-const TRAITS_KEY = 'ar_traits'
 const MAX_ID_LEN = 128
 
 export class UserStore {
@@ -11,14 +10,6 @@ export class UserStore {
 
   constructor() {
     this.id = this.store.get(UID_KEY) ?? undefined
-    const raw = this.store.get(TRAITS_KEY)
-    if (raw) {
-      try {
-        this.traitsValue = JSON.parse(raw) as Record<string, unknown>
-      } catch {
-        this.traitsValue = undefined
-      }
-    }
   }
 
   get userId(): string | undefined {
@@ -33,15 +24,13 @@ export class UserStore {
     if (typeof userId !== 'string' || userId === '') return
     this.id = userId.slice(0, MAX_ID_LEN)
     this.store.set(UID_KEY, this.id)
+    // traits hanya di memori: bisa berisi PII (email, nama) dan tidak boleh menyentuh disk tanpa redaksi.
     this.traitsValue = traits
-    if (traits) this.store.set(TRAITS_KEY, JSON.stringify(traits))
-    else this.store.remove(TRAITS_KEY)
   }
 
   reset(): void {
     this.id = undefined
     this.traitsValue = undefined
     this.store.remove(UID_KEY)
-    this.store.remove(TRAITS_KEY)
   }
 }

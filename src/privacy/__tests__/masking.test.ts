@@ -80,3 +80,9 @@ test('buildMaskOptions: maskTextFn menjalankan redactString pada teks biasa dan 
   document.body.innerHTML = '<div data-artracker-mask><b id="s">Saldo 5.000</b></div>'
   expect(fn('Saldo 5.000', document.getElementById('s'))).toBe('***** *****')
 })
+
+test('input hidden (token CSRF, email) selalu di-mask, bahkan saat maskAllInputs false', () => {
+  expect(shouldMaskInput(el('<input type="hidden" name="csrf" value="abc">'), open)).toBe(true)
+  const opts = buildMaskOptions(open).maskInputOptions as Record<string, boolean>
+  expect(opts.hidden).toBe(true)
+})

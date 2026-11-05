@@ -56,3 +56,32 @@ test('event yang tidak dapat diserialisasi dilewati tanpa melempar', () => {
   expect(() => chunkEvents([circular, ev(1, 10)], MAX, 0)).not.toThrow()
   expect(chunkEvents([circular, ev(1, 10)], MAX, 0).flatMap((c) => c.events)).toHaveLength(1)
 })
+
+const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length
+
+test('chunk <= 24 KB dalam BYTE UTF-8 untuk teks non-Latin', () => {
+  const events = Array.from({ length: 60 }, (_, i) => ({ type: 3, timestamp: 1_700_000_000_000 + i, data: '日本語のテキスト'.repeat(60) }))
+  for (const c of chunkEvents(events, MAX, 0)) expect(bytes(c)).toBeLessThanOrEqual(MAX)
+})
+
+test('event non-Latin yang >24 KB dalam byte dijadikan stub oversized', () => {
+  const [c] = chunkEvents([{ type: 2, timestamp: 1, data: '日'.repeat(9000) }], MAX, 0)
+  expect((c?.events[0] as { oversized?: boolean }).oversized).toBe(true)
+})
+
+test('PII di atribut node snapshot dan mutasi atribut diredaksi tanpa memutasi event asli', () => {
+  const snapshot = { type: 2, timestamp: 1, data: { node: { type: 2, attributes: { title: 'hubungi budi@example.com', 'data-x': 'ok' }, childNodes: [{ type: 2, attributes: { placeholder: '081234567890' } }] } } }
+  const mutation = { type: 3, timestamp: 2, data: { source: 0, attributes: [{ id: 5, attributes: { 'data-user': 'budi@example.com' } }], adds: [{ node: { attributes: { alt: 'budi@example.com' } } }] } }
+  const before = JSON.stringify([snapshot, mutation])
+  const dump = JSON.stringify(chunkEvents([snapshot, mutation], MAX, 0))
+  expect(dump).not.toContain('budi@example.com')
+  expect(dump).not.toContain('081234567890')
+  expect(dump).toContain('"data-x":"ok"')
+  expect(JSON.stringify([snapshot, mutation])).toBe(before) // objek milik rrweb (mirror) tidak boleh berubah
+})
+
+test('atribut _cssText dan rr_* tidak diproses (hindari merusak CSS/data URI dan biaya regex)', () => {
+  const css = 'a{margin:0 1234567890123px}'
+  const [c] = chunkEvents([{ type: 2, timestamp: 1, data: { node: { attributes: { _cssText: css, rr_dataURL: 'data:image/png;base64,' + '1'.repeat(40) } } } }], MAX, 0)
+  expect(JSON.stringify(c)).toContain(css)
+})

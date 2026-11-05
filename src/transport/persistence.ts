@@ -27,9 +27,12 @@ const STORE = 'batches'
 const LS_PREFIX = 'ar_q_'
 const LS_CAP_BYTES = 1024 * 1024
 
-/** 0 = replay (dibuang lebih dulu), 1 = event/log biasa, 2 = log error/fatal (dipertahankan paling akhir). */
+/**
+ * 0 = replay (dibuang lebih dulu), 1 = event/log biasa, 2 = error aplikasi (dipertahankan paling akhir).
+ * Log `http_request` level error (mis. polling saat offline) BUKAN error aplikasi: tidak boleh mengusir yang penting.
+ */
 function tier(b: PendingBatch): 0 | 1 | 2 {
-  if (b.items.some((i) => i.type === 'log' && (i.level === 'error' || i.level === 'fatal'))) return 2
+  if (b.items.some((i) => i.type === 'log' && (i.level === 'error' || i.level === 'fatal') && i.name !== 'http_request')) return 2
   if (b.items.length > 0 && b.items.every((i) => i.name === 'replay_chunk')) return 0
   return 1
 }
@@ -38,7 +41,7 @@ function evictionOrder(batches: PendingBatch[]): PendingBatch[] {
   return batches.slice().sort((a, b) => tier(a) - tier(b) || a.createdAt - b.createdAt)
 }
 
-async function enforceBytes(backend: Backend, maxBytes: number): Promise<number> {
+async function enforceBytes(backend: Backend, maxBytes: number): Promise<{ removed: number; total: number }> {
   const all = await backend.all()
   let total = all.reduce((n, b) => n + b.bytes, 0)
   let removed = 0
@@ -48,17 +51,62 @@ async function enforceBytes(backend: Backend, maxBytes: number): Promise<number>
     total -= b.bytes
     removed++
   }
-  return removed
+  return { removed, total }
 }
 
-function createStore(backend: Backend, capBytes?: number): BatchStore {
+function memoryBackend(): Backend {
+  const m = new Map<string, PendingBatch>()
+  return {
+    all: async () => [...m.values()],
+    put: async (b) => void m.set(b.id, b),
+    del: async (id) => void m.delete(id),
+  }
+}
+
+/**
+ * `primary` + cadangan memori: put yang gagal di tengah sesi (kuota, storage dicabut) jatuh ke memori alih-alih
+ * membuang batch. `capBytes` ditegakkan SAAT put memakai total berjalan (getAll penuh hanya bila terlampaui), bukan hanya saat init.
+ */
+function createStore(primary: Backend, capBytes?: number): BatchStore {
+  const mem = memoryBackend()
+  const backend: Backend = {
+    all: async () => {
+      let p: PendingBatch[] = []
+      try {
+        p = await primary.all()
+      } catch {
+        /* hanya memori */
+      }
+      return [...p, ...(await mem.all())]
+    },
+    put: async (b) => {
+      try {
+        await primary.put(b)
+      } catch {
+        await mem.put(b)
+      }
+    },
+    del: async (id) => {
+      try {
+        await primary.del(id)
+      } catch {
+        /* diabaikan */
+      }
+      await mem.del(id)
+    },
+  }
+  let approx: number | undefined // total byte perkiraan; delete() tidak mengurangi => melebih-lebihkan, lalu dikoreksi saat enforce
+
   return {
     async put(b) {
       try {
         await backend.put(b)
-        if (capBytes !== undefined) await enforceBytes(backend, capBytes)
+        if (capBytes !== undefined) {
+          approx = approx === undefined ? (await backend.all()).reduce((n, x) => n + x.bytes, 0) : approx + b.bytes
+          if (approx > capBytes) approx = (await enforceBytes(backend, capBytes)).total
+        }
       } catch {
-        /* penyimpanan gagal: telemetri hilang lebih baik daripada merusak aplikasi host */
+        /* penyimpanan gagal total: telemetri hilang lebih baik daripada merusak aplikasi host */
       }
     },
     async listPending(limit) {
@@ -86,7 +134,8 @@ function createStore(backend: Backend, capBytes?: number): BatchStore {
             removed++
           }
         }
-        return removed + (await enforceBytes(backend, maxBytes))
+        approx = undefined
+        return removed + (await enforceBytes(backend, maxBytes)).removed
       } catch {
         return 0
       }
@@ -155,11 +204,27 @@ function localBackend(): Backend {
   }
 }
 
-/** IndexedDB sebagai primary; jatuh ke localStorage (cap 1 MB) bila IndexedDB tidak dapat dipakai. Tidak pernah reject. */
-export async function createBatchStore(): Promise<BatchStore> {
+function localStorageUsable(): boolean {
   try {
-    return createStore(idbBackend(await openDb()))
+    const s = window.localStorage
+    s.setItem('ar_probe', '1')
+    s.removeItem('ar_probe')
+    return true
   } catch {
-    return createStore(localBackend(), LS_CAP_BYTES)
+    return false
   }
+}
+
+/**
+ * IndexedDB -> localStorage (cap 1 MB) -> memori. Tier terakhir menjamin SDK tetap mengirim saat semua storage diblokir
+ * (Safari ITP, iframe lintas-situs). `capBytes` = offline.maxQueueBytes. Tidak pernah reject.
+ */
+export async function createBatchStore(opts: { capBytes?: number } = {}): Promise<BatchStore> {
+  try {
+    return createStore(idbBackend(await openDb()), opts.capBytes)
+  } catch {
+    /* IndexedDB tidak dapat dipakai */
+  }
+  if (localStorageUsable()) return createStore(localBackend(), Math.min(opts.capBytes ?? LS_CAP_BYTES, LS_CAP_BYTES))
+  return createStore(memoryBackend(), opts.capBytes ?? LS_CAP_BYTES)
 }

@@ -114,3 +114,48 @@ test('operasi store tidak pernah reject saat localStorage rusak', async () => {
   await expect(store.put(batch('a'))).resolves.toBeUndefined()
   vi.restoreAllMocks()
 })
+
+// ---- fix pass: tier memori, kuota IDB berjalan, prioritas http_request ----
+const blockLocalStorage = () =>
+  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+    throw new Error('SecurityError')
+  })
+
+test('jatuh ke MEMORI saat IndexedDB dan localStorage sama-sama diblokir (batch tetap dapat dikirim)', async () => {
+  vi.stubGlobal('indexedDB', undefined)
+  blockLocalStorage()
+  const store = await createBatchStore()
+  await store.put(batch('a'))
+  expect((await store.listPending()).map((b) => b.id)).toEqual(['a'])
+  await store.delete('a')
+  expect(await store.listPending()).toEqual([])
+  vi.restoreAllMocks()
+})
+
+test('put yang gagal di tengah sesi (kuota localStorage) jatuh ke memori, batch tidak hilang', async () => {
+  vi.stubGlobal('indexedDB', undefined)
+  const store = await createBatchStore()
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('quota', 'QuotaExceededError')
+  })
+  await store.put(batch('kept'))
+  expect((await store.listPending()).map((b) => b.id)).toEqual(['kept'])
+  vi.restoreAllMocks()
+})
+
+test('kuota IndexedDB ditegakkan saat put selama sesi berjalan, bukan hanya saat init', async () => {
+  const store = await createBatchStore({ capBytes: 1500 })
+  await store.put(batch('b1', { age: 3000 }))
+  await store.put(batch('b2', { age: 2000 }))
+  await store.put(batch('b3', { age: 1000 }))
+  expect((await store.listPending()).map((b) => b.id)).toEqual(['b2', 'b3'])
+})
+
+test('log error http_request tidak dilindungi sebagai "error penting": dibuang sebelum error aplikasi', async () => {
+  const store = await createBatchStore({ capBytes: 700 })
+  const http = batch('http', { type: 'log', level: 'error', name: 'http_request', age: 3000 })
+  const app = batch('app', { type: 'log', level: 'error', name: 'js_error', age: 1000 })
+  await store.put(http)
+  await store.put(app)
+  expect((await store.listPending()).map((b) => b.id)).toEqual(['app'])
+})
