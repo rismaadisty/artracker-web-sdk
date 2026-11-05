@@ -2,6 +2,7 @@ import type { ReplayDriver } from '../types'
 import { replayDriver } from './recorder'
 
 export type { ReplayDriver }
+export { replayDriver }
 
 /**
  * Mengaktifkan session replay. Dipasang lewat opsi `replay` agar rrweb tidak ikut ke entry utama:

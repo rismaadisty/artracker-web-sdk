@@ -1,7 +1,7 @@
 # Technical Architecture Plan — `@artracker/browser`
 
 **Issue:** [P3] feat(sdk-web): Web SDK (@artracker/browser) — tiofani03/artracker#11
-**Status:** Disetujui untuk implementasi (2026-11-05)
+**Status:** Diimplementasikan sebagai `0.1.0` (2026-11-05). Deviasi dari dokumen ini dicatat di bagian **12**.
 **Prasyarat baca:** [`CONTRACT.md`](./CONTRACT.md) — ringkasan terverifikasi kontrak ingest backend.
 
 ---
@@ -24,7 +24,7 @@ Next.js, atau vanilla JS dengan konfigurasi minimal tiga baris, dan mengirim tel
 
 | # | Keputusan | Alasan |
 | --- | --- | --- |
-| D1 | **Budget <45 kB diukur pada entry bundle**, bukan total termasuk `rrweb` | `rrweb` record-only saja ~30–40 kB gzip; membundel statis membuat AC mustahil tanpa mengorbankan fitur |
+| D1 | **Budget <45 kB diukur pada entry bundle**, bukan total termasuk `rrweb` | `rrweb` record-only saja **≈57 kB gzip** (diukur pada rrweb 2.2.0 dengan esbuild; estimasi awal ~30–40 kB keliru); membundel statis membuat AC mustahil tanpa mengorbankan fitur |
 | D2 | **Session replay default OFF** (`replay.enabled: false`) | Privasi (opt-in eksplisit) dan perlindungan kuota 1000 event/s per project |
 | D3 | `sdk.name = "artracker-web"` | Konsisten dengan data mock dashboard di `handler/telemetry.go` |
 | D4 | Hanya mendukung key `art_live_*` | `art_sec_*` tidak boleh pernah ada di bundle browser |
@@ -101,7 +101,7 @@ ARTracker.init({
   environment: 'production',
   appVersion: '2.4.1',
   sampleRate: 1.0,
-  replay: { enabled: false, sampleRate: 0.1 },        // D2: default OFF
+  replay: { enabled: false, sampleRate: 0.1 },        // D2: default OFF; aktifkan lewat replay() dari '@artracker/browser/replay'
   privacy: { maskAllInputs: true, blockClass: 'ar-block', redactors: [] },
   network: { enabled: true, ignoreUrls: [/\/healthz/], captureBodies: false },
   batch:   { maxItems: 50, maxBytes: 128 * 1024, flushIntervalMs: 5000 },
@@ -119,6 +119,7 @@ ARTracker.addBreadcrumb(breadcrumb)
 ARTracker.flush(): Promise<void>
 ARTracker.startReplay() / ARTracker.stopReplay()
 ARTracker.reset()        // logout: identitas dan sesi baru
+ARTracker.disable() / ARTracker.enable()   // opt-out persisten (menghapus batch tertunda)
 ARTracker.shutdown()     // lepas semua patch & listener, flush terakhir
 ```
 
@@ -154,11 +155,13 @@ Alasan metadata perangkat ikut di `session_start`: backend hanya menyimpan
 
 ### 4.1 Recording
 
-- `rrweb.record()` diimpor **dinamis** (`await import('./replay/recorder')`), hanya ketika
-  `replay.enabled` bernilai true **dan** sesi terpilih oleh sampling. Konsekuensi D1: entry
-  bundle bebas dari `rrweb`.
-- Distribusi: sub-path export `@artracker/browser/replay`; `rrweb` dideklarasikan sebagai
-  **optional peer dependency** sehingga bundler aplikasi host yang memutuskan cara memuatnya.
+- Perekam hidup di entry terpisah `@artracker/browser/replay` dan **disuntikkan** lewat opsi
+  `replay: replay({ sampleRate })` (driver). Entry utama tidak pernah memuat atau menyebut `rrweb`
+  (terverifikasi: `grep -c rrweb dist/index.js` = 0). Build IIFE/CJS tidak bisa code-splitting, sehingga
+  `import()` perekam dari entry utama akan ikut membundel rrweb — itu sebabnya desain `import('./replay/recorder')`
+  semula ditinggalkan (lihat bagian 12).
+- `rrweb` diimpor dinamis di dalam perekam, hanya bila `replay.enabled` **dan** sesi lolos sampling (atau
+  `startReplay()` manual). `rrweb` adalah **optional peer dependency** (`>=2.0.0`); bila tidak terpasang, replay no-op.
 - Konfigurasi hemat: `sampling: { mousemove: 50, scroll: 150, input: 'last', media: 800 }`,
   `recordCanvas: false`, `collectFonts: false`.
 - `checkoutEveryNms: 120000` — full snapshot ulang tiap 2 menit agar chunk yang hilang tidak
@@ -197,6 +200,7 @@ lebih baik kehilangan sebagian terkendali daripada seluruh `attributes` diganti
 **Lapis 1 — DOM masking (sebelum serialisasi rrweb):**
 
 - `maskAllInputs: true` sebagai default: seluruh `<input>`, `<textarea>`, `<select>` menjadi `*`.
+  Diimplementasikan lewat `maskInputOptions` serba-true + `maskInputFn(text, el)` sehingga keputusan mask ada di SDK.
 - Selalu di-mask tanpa kecuali, mengabaikan konfigurasi:
   - `input[type="password"]`
   - `autocomplete` ∈ `cc-number`, `cc-csc`, `cc-exp`, `current-password`, `new-password`
@@ -211,10 +215,10 @@ lebih baik kehilangan sebagian terkendali daripada seluruh `attributes` diganti
 
 | Kategori | Perlakuan |
 | --- | --- |
-| Email | `a***@domain.com` (atau hash SHA-256 bila `privacy.hashEmails: true`) |
+| Email | `a***@domain.com`. (`privacy.hashEmails` **belum diimplementasikan** di 0.1.0: SHA-256 bersifat async, pipeline redaksi sinkron) |
 | Kartu kredit | 13–19 digit + validasi Luhn → `**** **** **** 1234` |
 | Telepon Indonesia | `+62…` / `08…` → empat digit terakhir saja |
-| NIK | 16 digit → `[redacted]` |
+| NIK | 16 digit **dengan struktur valid** (provinsi 11–94, tanggal, bulan) → `[redacted]` |
 | JWT | `eyJ…` → `[redacted]` |
 | Header otorisasi | `Authorization: Bearer …` → `[redacted]` |
 | API key | `sk_…`, `art_sec_…`, pola kunci umum → `[redacted]` |
@@ -334,9 +338,11 @@ dan inline worker yang lebih ringkas.
 
 | Entry | Isi | Budget |
 | --- | --- | --- |
-| `@artracker/browser` | core + privacy + telemetry + transport | **≤ 18 kB** |
-| `@artracker/browser/replay` | adapter rrweb + chunker (**tanpa** rrweb) | ≤ 4 kB |
-| `rrweb` | optional peer, dimuat lazy | di luar budget entry |
+| `@artracker/browser` | core + privacy + telemetry + transport | **≤ 18 kB** — aktual **11,5 kB** |
+| `@artracker/browser/replay` | adapter rrweb + chunker (**tanpa** rrweb) | ≤ 4 kB — aktual **2,5 kB** |
+| `rrweb` | optional peer, dimuat lazy | di luar budget entry — terukur **≈57 kB** (record-only) |
+
+Total dengan replay aktif ≈ **71 kB**: target <45 kB dipenuhi oleh **entry**, bukan oleh total (keputusan D1).
 
 `size-limit` dijalankan sebagai **gate di CI**: build gagal bila entry melewati 18 kB.
 
@@ -386,52 +392,52 @@ attributes item `session_start`.
 ## 10. Checklist Implementasi
 
 ### Fase 0 — Fondasi
-- [ ] Scaffold `artracker-web-sdk/`: pnpm, TypeScript strict, tsup, Vitest + jsdom, ESLint/Prettier, size-limit
-- [ ] CI: lint → typecheck → test → **size-limit gate** (gagal bila entry >18 kB)
+- [x] Scaffold `artracker-web-sdk/`: pnpm, TypeScript strict, tsup, Vitest + jsdom, ESLint/Prettier, size-limit
+- [x] CI: lint → typecheck → test → **size-limit gate** (gagal bila entry >18 kB)
 
 ### Fase 1 — Core & Session
-- [ ] `config.ts` — validasi opsi, default, pesan error yang jelas
-- [ ] `session.ts` — generate/persist/rotate id, idle + hard timeout
-- [ ] `user.ts` + `context.ts`
-- [ ] `bus.ts` + `envelope.ts` — builder RawItem sesuai `CONTRACT.md` §7
-- [ ] `client.ts` — `init/track/identify/log/reset/shutdown`, pre-init buffer, `safeCall`
+- [x] `config.ts` — validasi opsi, default, pesan error yang jelas
+- [x] `session.ts` — generate/persist/rotate id, idle + hard timeout
+- [x] `user.ts` + `context.ts`
+- [x] `bus.ts` + `envelope.ts` — builder RawItem sesuai `CONTRACT.md` §7
+- [x] `client.ts` — `init/track/identify/log/reset/shutdown`, pre-init buffer, `safeCall`
 
 ### Fase 2 — Transport
 > Dibangun sebelum listener agar setiap fitur berikutnya bisa langsung diverifikasi end-to-end
 > terhadap backend nyata.
-- [ ] `queue.ts` — batcher (trigger jumlah / byte / waktu)
-- [ ] `persistence.ts` — IndexedDB + fallback localStorage + eviction berprioritas
-- [ ] `backoff.ts` — exponential + jitter + `Retry-After`, tabel reaksi status `CONTRACT.md` §10
-- [ ] `sender.ts` — fetch keepalive → sendBeacon (`?api_key=`) saat unload
-- [ ] `worker/` — inline worker, gzip `CompressionStream`, fallback berjenjang
-- [ ] **Integration test lawan backend nyata**
+- [x] `queue.ts` — batcher (trigger jumlah / byte / waktu)
+- [x] `persistence.ts` — IndexedDB + fallback localStorage + eviction berprioritas
+- [x] `backoff.ts` — exponential + jitter + `Retry-After`, tabel reaksi status `CONTRACT.md` §10
+- [x] `sender.ts` — fetch keepalive → sendBeacon (`?api_key=`) saat unload
+- [x] `worker/` — inline worker, gzip `CompressionStream`, fallback berjenjang
+- [ ] **Integration test lawan backend nyata** — ditulis (`src/__tests__/pipeline.integration.test.ts`) tetapi **belum dijalankan**: tidak ada backend/Docker pada mesin pengembangan
 
 ### Fase 3 — Privacy Engine
 > Dibangun sebelum listener apa pun: tidak boleh ada jalur data tanpa redaksi.
-- [ ] `redactor.ts` + corpus test PII
-- [ ] `urlScrubber.ts`, deny-list berbasis key, guard depth/size, hook `beforeSend`
+- [x] `redactor.ts` + corpus test PII
+- [x] `urlScrubber.ts`, deny-list berbasis key, guard depth/size, hook `beforeSend`
 
 ### Fase 4 — Telemetry Listeners
-- [ ] `errors.ts` — onerror + unhandledrejection + fingerprint + dedup + circuit breaker
-- [ ] `network.ts` — fetch + XHR, anti-recursion, restore saat shutdown
-- [ ] `breadcrumbs.ts` ring buffer + `navigation.ts` (route change SPA)
+- [x] `errors.ts` — onerror + unhandledrejection + fingerprint + dedup + circuit breaker
+- [x] `network.ts` — fetch + XHR, anti-recursion, restore saat shutdown
+- [x] `breadcrumbs.ts` ring buffer + `navigation.ts` (route change SPA)
 
 ### Fase 5 — Replay
-- [ ] `recorder.ts` — dynamic import rrweb, sampling per sesi, idle scheduling
-- [ ] `masking.ts` — aturan DOM masking + hook `maskTextFn` ke redactor
-- [ ] `chunker.ts` — pecah ≤24 KB, `checkoutEveryNms`, penanganan event oversized
-- [ ] Benchmark long-task pada halaman berat
+- [x] `recorder.ts` — dynamic import rrweb, sampling per sesi, idle scheduling
+- [x] `masking.ts` — aturan DOM masking + hook `maskTextFn` ke redactor
+- [x] `chunker.ts` — pecah ≤24 KB, `checkoutEveryNms`, penanganan event oversized
+- [ ] Benchmark long-task pada halaman berat — **belum dilakukan** (butuh browser sungguhan)
 
 ### Fase 6 — Pengerasan & DX
-- [ ] Kill-switch (`ARTracker.disable()` + `localStorage.ar_disabled`), opsi hormati Do Not Track
-- [ ] SSR-safety untuk Next.js (no-op di server)
-- [ ] Adapter tipis: helper React ErrorBoundary + `errorHandler` Vue (didokumentasikan, belum paket terpisah)
-- [ ] Playground `examples/vanilla` + `examples/next`
+- [x] Kill-switch (`ARTracker.disable()` + `localStorage.ar_disabled`), opsi hormati Do Not Track
+- [x] SSR-safety untuk Next.js (no-op di server)
+- [x] Adapter tipis: helper React ErrorBoundary + `errorHandler` Vue (didokumentasikan, belum paket terpisah)
+- [x] Playground `examples/vanilla` + `examples/next` — ditulis, belum dijalankan di browser
 
 ### Fase 7 — Rilis
-- [ ] README (quickstart tiga baris), tabel opsi, panduan privasi, matriks dukungan browser
-- [ ] Laporan ukuran bundle final terhadap AC
-- [ ] Changeset + publish `0.1.0` + tag
+- [x] README (quickstart tiga baris), tabel opsi, panduan privasi, matriks dukungan browser
+- [x] Laporan ukuran bundle final terhadap AC
+- [ ] Changeset + publish `0.1.0` + tag — tag lokal dibuat; **publish ke npm belum dilakukan**
 
 ---
 
@@ -439,9 +445,28 @@ attributes item `session_start`.
 
 | # | Risiko | Mitigasi | Status |
 | --- | --- | --- | --- |
-| R1 | `rrweb` membuat total bundle jauh di atas 45 kB bila pelanggan mengaktifkan replay | D1: budget diukur pada entry; dokumentasikan biaya tambahan replay secara eksplisit di README | Diterima |
+| R1 | `rrweb` (≈57 kB gzip terukur) membuat total bundle ≈71 kB bila pelanggan mengaktifkan replay | D1: budget diukur pada entry; biaya replay didokumentasikan eksplisit di README | Diterima |
 | R2 | Backend memotong `attributes` >32 KB | Chunking 24 KB di SDK; tidak perlu perubahan backend | Tertangani |
 | R3 | Belum ada endpoint pembacaan replay | Di luar scope issue #11; data tetap tersimpan sebagai `kind='session'` | Di luar scope |
 | R4 | Kuota 1000 event/s dibagi seluruh pengguna satu project | Replay default off + sampling 0.1, dedup error, breadcrumb tidak dikirim per item | Tertangani |
 | R5 | CSP ketat melarang `blob:` worker | Opsi `workerUrl` + fallback main-thread | Tertangani |
 | R6 | Monkey-patch `fetch` berbenturan dengan SDK pihak ketiga lain (mis. Sentry) | Patch aditif, simpan referensi asli, selalu panggil fungsi sebelumnya, restore saat shutdown | Perlu uji manual di Fase 4 |
+
+---
+
+## 12. Deviasi dari dokumen ini (hasil implementasi `0.1.0`)
+
+| # | Dokumen semula | Implementasi | Alasan |
+| --- | --- | --- | --- |
+| 1 | `import('./replay/recorder')` dari entry utama | Perekam **disuntikkan** lewat `replay: replay({...})` dari `@artracker/browser/replay` | Build IIFE/CJS tidak code-splitting; `import()` akan membundel rrweb ke entry. Menjaga `grep rrweb dist/index.js` = 0 |
+| 2 | Walker redaksi untuk semua item | Chunk replay melewati walker atribut (`skipRedaction`); privasi replay via masking rrweb + redaksi param URL di chunker | `MAX_DEPTH 6` / `MAX_NODES 1000` akan merusak event rrweb. `beforeSend` tetap berjalan |
+| 3 | `privacy.hashEmails` → SHA-256 | Opsi diterima, **belum berfungsi** (email selalu di-mask) | SHA-256 async vs pipeline sinkron |
+| 4 | Interceptor `fetch` menormalkan lewat `new Request(input)` | Membaca `method`/`url` dari properti | `new Request(req)` mengonsumsi body `Request` milik aplikasi host |
+| 5 | `sampleRate` (tanpa definisi) | Per sesi, deterministik, hanya untuk `track()` biasa | Sampling acak per event merusak funnel dan menyembunyikan error |
+| 6 | `export default ARTracker`; IIFE dari entry yang sama | Hanya named export; IIFE dari `src/global.ts` | Namespace `{ARTracker, default}` memaksa `ARTracker.ARTracker.init()` pada `<script>` |
+| 7 | Hanya `disable()` menyetel flag | `disable()` juga menghapus batch tertunda; panggilan saat opt-out dibuang | Data pengguna yang menolak tidak boleh terkirim belakangan |
+| 8 | NIK = 16 digit | NIK = 16 digit **berstruktur valid** | Aturan 16 digit buta bertabrakan dengan "16 digit gagal Luhn tetap utuh" |
+| 9 | `beforeSend` melempar → (tidak ditentukan) | Item **dibuang** (fail-closed) | Hook sering berupa scrubber PII milik pengguna |
+| 10 | `rrweb` ~30–40 kB | Terukur ≈57 kB gzip | Estimasi awal keliru |
+
+Belum terverifikasi: perilaku di browser sungguhan (long-task / UI thread), dan integrasi terhadap backend hidup.
