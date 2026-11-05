@@ -17,6 +17,8 @@ export const ARTracker = {
   startReplay: (): void => client.startReplay(),
   stopReplay: (): void => client.stopReplay(),
   reset: (): void => client.reset(),
+  disable: (): void => client.disable(),
+  enable: (): void => client.enable(),
   shutdown: (): void => client.shutdown(),
 }
 

@@ -14,10 +14,12 @@ import { buildEnvelope, createItem, type ItemInput } from './envelope'
 import { sessionSampled } from './sampling'
 import { safeCall } from './safe'
 import { SessionManager } from './session'
+import { safeStorage } from './storage'
 import { UserStore } from './user'
 import { uuidv7 } from './uuid'
 
 const PRE_INIT_LIMIT = 100
+const DISABLED_KEY = 'ar_disabled'
 const DRAIN_GAP_MS = 200 // maks 5 batch/detik (CONTRACT §9)
 const MAX_CONSECUTIVE_FAILURES = 8
 
@@ -53,11 +55,26 @@ interface Runtime {
 }
 
 const isBrowser = (): boolean => typeof window !== 'undefined' && typeof document !== 'undefined'
+
+/** Do Not Track aktif bila browser melaporkan '1'/'yes' (navigator.doNotTrack, window.doNotTrack, msDoNotTrack lama). */
+function doNotTrack(): boolean {
+  try {
+    const n = navigator as Navigator & { msDoNotTrack?: string }
+    const w = window as Window & { doNotTrack?: string }
+    return [n.doNotTrack, w.doNotTrack, n.msDoNotTrack].some((v) => v === '1' || v === 'yes')
+  } catch {
+    return false
+  }
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 export class ARTrackerClient {
   private rt: Runtime | undefined
   private pre: Array<() => void> = []
+  private lastOptions: ARTrackerOptions | undefined
+  /** true saat opt-out/DNT aktif: panggilan API dibuang (tidak ditampung) agar tidak terkirim belakangan. */
+  private off = false
 
   // ---------- API publik ----------
 
@@ -75,7 +92,41 @@ export class ARTrackerClient {
       console.warn(err instanceof Error ? err.message : String(err))
       return
     }
+    this.lastOptions = options
+    this.off = false
+    // Kill-switch persisten dan Do Not Track (opt-in): SDK tidak memasang apa pun dan membuang buffer pre-init.
+    if (safeStorage('local').get(DISABLED_KEY) === '1' || (cfg.respectDoNotTrack && doNotTrack())) {
+      this.pre = []
+      this.off = true
+      return
+    }
     safeCall(() => this.start(cfg), cfg.debug, 'init')
+  }
+
+  /**
+   * Opt-out persisten: berhenti mengumpulkan, melepas semua patch/listener, dan MENGHAPUS batch yang tertunda
+   * (data milik pengguna yang menolak tidak boleh terkirim belakangan). Tidak ada flush.
+   */
+  disable(): void {
+    if (!isBrowser()) return
+    safeStorage('local').set(DISABLED_KEY, '1')
+    this.off = true
+    this.pre = []
+    const rt = this.rt
+    if (!rt) return
+    safeCall(() => {
+      void rt.store.then((s) => s.prune({ maxBytes: 0, maxAgeMs: 0 })).catch(() => {})
+      this.teardown(rt)
+    }, rt.cfg.debug, 'disable')
+    this.rt = undefined
+  }
+
+  /** Menghapus opt-out; bila init pernah dipanggil, melanjutkan dengan opsi yang sama. */
+  enable(): void {
+    if (!isBrowser()) return
+    safeStorage('local').remove(DISABLED_KEY)
+    this.off = false
+    if (!this.rt && this.lastOptions) this.init(this.lastOptions)
   }
 
   identify(userId: string, traits?: Record<string, unknown>): void {
@@ -162,7 +213,7 @@ export class ARTrackerClient {
 
   /** Menjalankan fn bila sudah init; sebelum itu ditampung (maks 100) dan dialirkan saat init. */
   private run(fn: (rt: Runtime) => void): void {
-    if (!isBrowser()) return
+    if (!isBrowser() || this.off) return
     const rt = this.rt
     if (!rt) {
       if (this.pre.length < PRE_INIT_LIMIT) this.pre.push(() => this.run(fn))

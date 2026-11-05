@@ -13,3 +13,5 @@ export const startReplay = ARTracker.startReplay
 export const stopReplay = ARTracker.stopReplay
 export const reset = ARTracker.reset
 export const shutdown = ARTracker.shutdown
+export const disable = ARTracker.disable
+export const enable = ARTracker.enable
