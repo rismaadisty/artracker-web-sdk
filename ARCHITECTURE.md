@@ -410,7 +410,7 @@ attributes item `session_start`.
 - [x] `backoff.ts` — exponential + jitter + `Retry-After`, tabel reaksi status `CONTRACT.md` §10
 - [x] `sender.ts` — fetch keepalive → sendBeacon (`?api_key=`) saat unload
 - [x] `worker/` — inline worker, gzip `CompressionStream`, fallback berjenjang
-- [ ] **Integration test lawan backend nyata** — ditulis (`src/__tests__/pipeline.integration.test.ts`) tetapi **belum dijalankan**: tidak ada backend/Docker pada mesin pengembangan
+- [x] **Integration test lawan backend nyata** — `src/__tests__/pipeline.integration.test.ts` dijalankan 2026-11-05 terhadap backend lokal (API Go + Postgres 16 tanpa Docker): 4 tes lulus. SDK hasil build juga dijalankan di Chrome 156 (preflight `204`, `POST` gzip `202`, PII tersamarkan di database)
 
 ### Fase 3 — Privacy Engine
 > Dibangun sebelum listener apa pun: tidak boleh ada jalur data tanpa redaksi.
@@ -426,13 +426,13 @@ attributes item `session_start`.
 - [x] `recorder.ts` — dynamic import rrweb, sampling per sesi, idle scheduling
 - [x] `masking.ts` — aturan DOM masking + hook `maskTextFn` ke redactor
 - [x] `chunker.ts` — pecah ≤24 KB, `checkoutEveryNms`, penanganan event oversized
-- [ ] Benchmark long-task pada halaman berat — **belum dilakukan** (butuh browser sungguhan)
+- [ ] Benchmark long-task pada halaman berat — **belum dilakukan**. Replay (rrweb) juga belum dijalankan di browser sungguhan
 
 ### Fase 6 — Pengerasan & DX
 - [x] Kill-switch (`ARTracker.disable()` + `localStorage.ar_disabled`), opsi hormati Do Not Track
 - [x] SSR-safety untuk Next.js (no-op di server)
 - [x] Adapter tipis: helper React ErrorBoundary + `errorHandler` Vue (didokumentasikan, belum paket terpisah)
-- [x] Playground `examples/vanilla` + `examples/next` — ditulis, belum dijalankan di browser
+- [x] Playground `examples/vanilla` + `examples/next` — ditulis. Halaman uji serupa dijalankan di Chrome; `examples/` apa adanya belum dijalankan, dan `examples/next` belum dicoba sama sekali
 
 ### Fase 7 — Rilis
 - [x] README (quickstart tiga baris), tabel opsi, panduan privasi, matriks dukungan browser
@@ -475,5 +475,8 @@ attributes item `session_start`.
 | 15 | Replay: input `hidden` dan atribut tidak ditangani | `hidden` selalu di-mask; PII pada nilai atribut diredaksi di chunker (salinan, bukan event milik rrweb) | Review akhir: CSRF token / email di hidden input dan atribut bocor |
 | 16 | Web Vitals, serialisasi+POST di Worker | Belum ada Web Vitals; worker hanya gzip | Koreksi dokumen terhadap kode |
 | 17 | `Retry-After` selalu menang; retry idempoten | Hanya bila terbaca (CORS); backend belum dedup | Keduanya bergantung pada backend (`ExposeHeaders`, `ON CONFLICT`) — rekomendasi issue backend |
+| 18 | `instanceof Error` untuk mengenali error | `isError()` (`core/safe.ts`): `instanceof` ditambah tag `[object Error]` / `[object DOMException]` | Ditemukan saat uji di Chrome: Error dari iframe gagal `instanceof` dan tersimpan sebagai `Error: {}` tanpa pesan dan stack. Objek biasa `{name, message}` tetap bukan Error |
 
-Belum terverifikasi: perilaku di browser sungguhan (long-task / UI thread), dan integrasi terhadap backend hidup.
+Terverifikasi (2026-11-05): integrasi terhadap backend hidup dan alur dasar di Chrome 156 (lihat §10 Fase 2).
+
+Belum terverifikasi: long-task / UI thread, Safari dan Firefox, replay di browser sungguhan, dan jalur `sendBeacon` secara spesifik.
