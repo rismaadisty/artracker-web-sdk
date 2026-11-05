@@ -254,3 +254,27 @@ test('method publik tidak pernah melempar meski storage dan jaringan rusak', asy
   }).not.toThrow()
   await expect(c.flush()).resolves.toBeUndefined()
 })
+
+test('init memasang listener error dan shutdown melepasnya', async () => {
+  const c = make()
+  c.init(opts)
+  const err = new TypeError('wired')
+  window.dispatchEvent(new ErrorEvent('error', { error: err, message: 'Uncaught TypeError: wired' }))
+  await c.flush()
+  expect(sent().find((i) => i.message === 'TypeError: wired')?.level).toBe('error')
+  const before = sent().length
+  c.shutdown()
+  const swallow = (e: Event) => e.preventDefault() // cegah vitest menganggapnya uncaught exception
+  window.addEventListener('error', swallow)
+  window.dispatchEvent(new ErrorEvent('error', { error: new Error('after'), message: 'x' }))
+  window.removeEventListener('error', swallow)
+  expect(sent().length).toBe(before)
+})
+
+test('captureException menyertakan fingerprint', async () => {
+  const c = make()
+  c.init(opts)
+  c.captureException(new Error('fp'))
+  await c.flush()
+  expect(typeof sent().find((i) => i.message === 'Error: fp')?.attributes?.fingerprint).toBe('string')
+})

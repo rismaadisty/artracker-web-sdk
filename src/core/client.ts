@@ -1,5 +1,6 @@
 import type { ARTrackerOptions, Envelope, LogLevel, RawItem, ResolvedConfig } from '../types'
 import { BreadcrumbBuffer } from '../telemetry/breadcrumbs'
+import { buildErrorReport, installErrorListeners } from '../telemetry/errors'
 import { redactItem } from '../privacy/redactor'
 import { BatchQueue, type FlushReason } from '../transport/queue'
 import { createBatchStore, type BatchStore, type PendingBatch } from '../transport/persistence'
@@ -17,7 +18,6 @@ import { uuidv7 } from './uuid'
 const PRE_INIT_LIMIT = 100
 const DRAIN_GAP_MS = 200 // maks 5 batch/detik (CONTRACT §9)
 const MAX_CONSECUTIVE_FAILURES = 8
-const MAX_STACK = 16 * 1024
 
 export interface TelemetryContext {
   emit(input: ItemInput): void
@@ -90,18 +90,8 @@ export class ARTrackerClient {
 
   captureException(error: unknown, context?: Record<string, unknown>): void {
     this.run((rt) => {
-      const e = error instanceof Error ? error : new Error(String(error))
-      this.emit(rt, {
-        type: 'log',
-        level: 'error',
-        message: `${e.name}: ${e.message}`,
-        attributes: {
-          ...context,
-          kind: 'captured',
-          stack: (e.stack ?? '').slice(0, MAX_STACK),
-          breadcrumbs: rt.breadcrumbs.snapshot(),
-        },
-      })
+      const report = buildErrorReport(error, rt.breadcrumbs, context)
+      this.emit(rt, { type: 'log', level: 'error', message: report.message, attributes: report.attributes })
     })
   }
 
@@ -217,6 +207,8 @@ export class ARTrackerClient {
       rt.queue.flush('online')
       void this.startDrain(rt)
     })
+
+    rt.cleanups.push(installErrorListeners(rt.ctx))
 
     this.rt = rt
     this.emit(rt, { type: 'session', name: 'session_start', attributes: collectDeviceMeta() })
