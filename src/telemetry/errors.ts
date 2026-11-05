@@ -1,5 +1,6 @@
 import type { TelemetryContext } from '../core/client'
 import { hash32 } from '../core/sampling'
+import { isError } from '../core/safe'
 import { scrubUrl } from '../privacy/urlScrubber'
 import type { BreadcrumbBuffer } from './breadcrumbs'
 
@@ -50,7 +51,7 @@ export function buildErrorReport(
   kind = 'captured',
   defaultName = 'Error',
 ): ErrorReport {
-  const e = error instanceof Error ? error : undefined
+  const e = isError(error) ? error : undefined
   const name = e?.name || defaultName
   const text = e ? e.message : describe(error)
   const message = `${name}: ${text}`
@@ -105,11 +106,11 @@ export function installErrorListeners(ctx: TelemetryContext): () => void {
       const e = ev as ErrorEvent
       const extra = { filename: e.filename, lineno: e.lineno, colno: e.colno }
       const report =
-        e.error instanceof Error
+        isError(e.error)
           ? buildErrorReport(e.error, ctx.breadcrumbs, extra, 'error')
           : buildErrorReport(e.message || 'Unknown error', ctx.breadcrumbs, extra, 'error')
       if (!allow(String(report.attributes.fingerprint))) return
-      ctx.emit({ type: 'log', level: 'error', message: e.error instanceof Error ? report.message : e.message || report.message, attributes: report.attributes })
+      ctx.emit({ type: 'log', level: 'error', message: isError(e.error) ? report.message : e.message || report.message, attributes: report.attributes })
     } catch {
       /* listener tidak boleh melempar ke aplikasi host */
     }

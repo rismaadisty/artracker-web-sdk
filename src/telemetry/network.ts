@@ -1,4 +1,5 @@
 import type { TelemetryContext } from '../core/client'
+import { isError } from '../core/safe'
 import { scrubUrl } from '../privacy/urlScrubber'
 import type { LogLevel } from '../types'
 
@@ -76,7 +77,7 @@ export function installNetworkInterceptors(ctx: TelemetryContext): () => void {
                 ...(Number.isFinite(len) && res.headers?.get('content-length') !== null && { res_bytes: len }),
               })
             },
-            (err: unknown) => report(method, rawUrl, 0, startedAt, { error: err instanceof Error ? err.message : String(err) }),
+            (err: unknown) => report(method, rawUrl, 0, startedAt, { error: isError(err) ? err.message : String(err) }),
           )
         }
       } catch {

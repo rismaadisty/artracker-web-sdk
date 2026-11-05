@@ -1,3 +1,4 @@
+import { isError } from '../core/safe'
 import type { RawItem, ResolvedConfig } from '../types'
 import { redactQueryParams } from './urlScrubber'
 
@@ -112,7 +113,7 @@ function walk(v: unknown, depth: number, ctx: Walk): unknown {
   if (typeof v === 'bigint') return String(v)
   if (typeof v !== 'object') return undefined // function, symbol, undefined
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString()
-  if (v instanceof Error) return { name: v.name, message: redactStringWith(v.message, ctx.extra) }
+  if (isError(v)) return { name: v.name, message: redactStringWith(v.message, ctx.extra) }
   if (depth >= MAX_DEPTH) return '[max-depth]'
   if (ctx.seen.has(v)) return '[circular]'
   if (++ctx.nodes > MAX_NODES) return '[truncated]'

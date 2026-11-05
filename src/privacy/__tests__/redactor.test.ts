@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { resolveConfig } from '../../core/config'
 import { createItem } from '../../core/envelope'
 import { redactItem, redactString, redactValue } from '../redactor'
@@ -171,4 +172,12 @@ test('redactItem dengan skipAttributes tidak menyentuh attributes (objek dalam t
   const out = redactItem(createItem({ type: 'session', name: 'replay_chunk', attributes: deep }), { ...cfg, beforeSend: (i) => (seen.push(i.name), i) }, { skipAttributes: true })
   expect(out?.attributes).toEqual(deep)
   expect(seen).toEqual(['replay_chunk'])
+})
+
+test('Error lintas-realm di dalam attributes tetap menjadi {name, message} dengan PII disamarkan', () => {
+  const err = runInNewContext(`new TypeError('gagal untuk budi@example.com')`) as Error
+  expect(err instanceof Error).toBe(false)
+  const out = redactValue({ err }) as { err: { name: string; message: string } }
+  expect(out.err.name).toBe('TypeError')
+  expect(out.err.message).toMatch(/^gagal untuk b\*+@example\.com$/)
 })

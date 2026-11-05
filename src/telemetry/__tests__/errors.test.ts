@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { resolveConfig } from '../../core/config'
 import { SessionManager } from '../../core/session'
 import type { TelemetryContext } from '../../core/client'
@@ -157,4 +158,33 @@ test('buildErrorReport menangani nilai non-Error dan memotong stack', () => {
   expect(r.message).toBe('Error: oops')
   expect(r.attributes).toMatchObject({ extra: 1, kind: 'captured' })
   expect(Array.isArray(r.attributes.breadcrumbs)).toBe(true)
+})
+
+// Error dari realm lain (iframe, micro-frontend, vm) gagal `instanceof Error`; harus tetap dikenali.
+const foreign = <T>(code: string): T => runInNewContext(code) as T
+
+test('buildErrorReport mengenali Error lintas-realm (pesan dan stack tidak hilang)', () => {
+  const err = foreign<Error>(`(() => { const e = new TypeError('dari iframe'); e.stack = 'TypeError: dari iframe\\n    at f (https://a/x.js:1:1)'; return e })()`)
+  expect(err instanceof Error).toBe(false)
+  const r = buildErrorReport(err, new BreadcrumbBuffer(5))
+  expect(r.message).toBe('TypeError: dari iframe')
+  expect(String(r.attributes.stack)).toContain('at f (https://a/x.js:1:1)')
+})
+
+test('unhandledrejection dengan reason Error lintas-realm tercatat lengkap', () => {
+  window.dispatchEvent(rejection(foreign<Error>(`new RangeError('rentang buruk')`)))
+  expect(lastCall().message).toBe('RangeError: rentang buruk')
+})
+
+test('window error dengan event.error lintas-realm memakai pesan Error, bukan event.message', () => {
+  const err = foreign<Error>(`new Error('asli')`)
+  swallow(() => window.dispatchEvent(new ErrorEvent('error', { error: err, message: 'Uncaught Error: asli' })))
+  expect(lastCall().message).toBe('Error: asli')
+  expect(String(lastCall().attributes.stack)).toContain('asli')
+})
+
+test('objek biasa bernama {name, message} bukan Error dan tetap diperlakukan sebagai nilai biasa', () => {
+  const r = buildErrorReport({ name: 'Palsu', message: 'bukan error' }, new BreadcrumbBuffer(5))
+  expect(r.message).toMatch(/^Error: \{.*bukan error.*\}$/)
+  expect(r.attributes.stack).toBe('')
 })
