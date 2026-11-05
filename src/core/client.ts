@@ -1,5 +1,6 @@
 import type { ARTrackerOptions, Envelope, LogLevel, RawItem, ResolvedConfig } from '../types'
-import { BreadcrumbBuffer } from '../telemetry/breadcrumbs'
+import { BreadcrumbBuffer, installBreadcrumbListeners } from '../telemetry/breadcrumbs'
+import { installNavigationListeners } from '../telemetry/navigation'
 import { buildErrorReport, installErrorListeners } from '../telemetry/errors'
 import { redactItem } from '../privacy/redactor'
 import { BatchQueue, type FlushReason } from '../transport/queue'
@@ -208,7 +209,7 @@ export class ARTrackerClient {
       void this.startDrain(rt)
     })
 
-    rt.cleanups.push(installErrorListeners(rt.ctx))
+    rt.cleanups.push(installErrorListeners(rt.ctx), installBreadcrumbListeners(rt.ctx), installNavigationListeners(rt.ctx))
 
     this.rt = rt
     this.emit(rt, { type: 'session', name: 'session_start', attributes: collectDeviceMeta() })

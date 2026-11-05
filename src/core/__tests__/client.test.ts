@@ -278,3 +278,17 @@ test('captureException menyertakan fingerprint', async () => {
   await c.flush()
   expect(typeof sent().find((i) => i.message === 'Error: fp')?.attributes?.fingerprint).toBe('string')
 })
+
+test('init memasang breadcrumb click dan page_view navigasi', async () => {
+  History.prototype.pushState.call(history, null, '', '/home')
+  const c = make()
+  c.init(opts)
+  document.body.innerHTML = '<button id="go">Lanjut</button>'
+  document.getElementById('go')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  history.pushState(null, '', '/next')
+  c.captureException(new Error('after click'))
+  await c.flush()
+  expect(sent().find((i) => i.name === 'page_view')?.attributes?.to).toContain('/next')
+  const crumbs = sent().find((i) => i.message === 'Error: after click')?.attributes?.breadcrumbs as Array<{ type: string }>
+  expect(crumbs.map((b) => b.type)).toEqual(['click', 'navigation'])
+})
