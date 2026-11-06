@@ -3,6 +3,13 @@
 > Dokumen ini adalah ringkasan **terverifikasi** dari kode backend `artracker` per 2026-11-05.
 > Setiap baris di bawah ditelusuri ke file sumbernya. Jika backend berubah, dokumen ini harus
 > diperbarui lebih dulu sebelum SDK menyesuaikan.
+>
+> **Snapshot:** repo `tiofani03/artracker` pada commit `cdc158a`. Backend berada di repo lain, jadi dokumen ini
+> bisa tertinggal; bila ragu, kode backend adalah sumber kebenaran.
+>
+> **Terverifikasi terhadap backend hidup (2026-11-05):** `202` untuk JSON polos dan gzip, fallback `?api_key=`,
+> `401` untuk key tidak valid, dan preflight `OPTIONS` dari Chrome dijawab `204`. Bagian lain (batas ukuran,
+> `413`, `429`/`503`, normalisasi timestamp) ditelusuri dari kode dan belum dipicu secara langsung.
 
 Sumber: `backend/internal/handler/{routes,ingest,telemetry}.go`,
 `backend/internal/ingest/{model,sanitize,decompress,ratelimit,keycache}.go`,
@@ -27,7 +34,8 @@ Sumber: `backend/internal/handler/{routes,ingest,telemetry}.go`,
 | Header (utama) | `X-Artracker-Key: art_live_…` |
 | Query (fallback) | `?api_key=art_live_…` — **wajib dipakai oleh `navigator.sendBeacon`** karena Beacon API tidak dapat mengirim custom header |
 | Tipe key diterima | `art_live_*` (public client) dan `art_sec_*` (secret admin). SDK web **hanya** boleh memakai `art_live_*` |
-| Validasi | Prefix check → LRU cache (TTL 60 s) → query DB dengan singleflight (`ingest/keycache.go`) |
+| Validasi | Prefix check → LRU cache → query DB dengan singleflight (`ingest/keycache.go`). TTL cache: **60 s** untuk key valid, **10 s** untuk key tidak valid (negative cache) |
+| Dampak cache | Key yang baru dibuat bisa ditolak (`401`) sampai 10 s bila sempat dicoba sebelumnya; key yang dicabut masih diterima sampai 60 s |
 | Panjang key valid | 32–128 karakter |
 | Gagal | `401 Unauthorized` (`missing api key` / `invalid api key`) |
 

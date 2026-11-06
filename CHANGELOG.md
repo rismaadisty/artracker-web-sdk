@@ -14,4 +14,10 @@ Rilis pertama `@artracker/browser`.
 
 Perbaikan dari review akhir (sebelum rilis): fallback storage ke memori, `<input type=hidden>` dan PII pada atribut elemen di replay, batas ukuran dalam byte UTF-8, kuota IndexedDB saat sesi berjalan, `session_start` hanya untuk sesi baru + `page_view` awal, traits tidak lagi ditulis ke `localStorage`, race `disable()`/`enable()`.
 
-Belum ada: `privacy.hashEmails`, `network.captureBodies`, Web Vitals, pengujian di browser sungguhan, verifikasi terhadap backend hidup.
+Perbaikan dari pengujian pada backend hidup dan Chrome (sebelum rilis): objek `Error` dari realm lain (iframe, micro-frontend) tidak lagi tersimpan sebagai `Error: {}` tanpa pesan dan stack, baik lewat `captureException`, `unhandledrejection`, `window.onerror`, maupun saat berada di dalam `attributes`.
+
+Terverifikasi (2026-11-05): 4 tes integrasi lulus terhadap backend lokal (API Go + Postgres 16); di Chrome 156 preflight CORS dijawab `204`, `POST` gzip dijawab `202`, PII tersamarkan di payload dan di database, error tercatat dengan stack dan breadcrumb, dan batch yang masih tertunda tetap sampai saat halaman ditinggalkan.
+
+Belum ada: `privacy.hashEmails`, `network.captureBodies`, Web Vitals.
+
+Belum terverifikasi: benchmark long-task, Safari dan Firefox, session replay (rrweb) di browser sungguhan, dan jalur `sendBeacon` secara spesifik (pengiriman saat unload terbukti sampai, tetapi mekanismenya tidak terkonfirmasi).
