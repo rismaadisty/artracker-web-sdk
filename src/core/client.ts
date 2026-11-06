@@ -343,7 +343,7 @@ export class ARTrackerClient {
   private startReplayInternal(rt: Runtime, force: boolean): void {
     const driver = rt.cfg.replay.driver
     if (!driver) {
-      if (rt.cfg.debug || force) console.warn('[artracker] replay needs a driver: import { replay } from "@artracker/browser/replay"')
+      if (rt.cfg.debug || force) console.warn('[artracker] replay needs a driver: import { replay } from "@artracker-sdk/browser/replay"')
       return
     }
     if (rt.replayStop || rt.replayStarting) return

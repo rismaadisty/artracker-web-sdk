@@ -1,4 +1,4 @@
-# @artracker/browser
+# @artracker-sdk/browser
 
 SDK Web/Browser untuk [artracker](https://github.com/tiofani03/artracker): menangkap **error, request jaringan, event kustom, dan (opsional) session replay**, lalu mengirimnya ke `POST /api/v1/ingest` dengan redaksi PII otomatis dan antrean offline.
 
@@ -10,11 +10,11 @@ SDK Web/Browser untuk [artracker](https://github.com/tiofani03/artracker): menan
 ## Mulai cepat
 
 ```bash
-pnpm add @artracker/browser
+pnpm add @artracker-sdk/browser
 ```
 
 ```ts
-import { ARTracker } from '@artracker/browser'
+import { ARTracker } from '@artracker-sdk/browser'
 
 ARTracker.init({ appKey: 'art_live_...', endpoint: 'https://api.example.com/api/v1/ingest' })
 ARTracker.identify('usr_42', { plan: 'pro' })

@@ -1,5 +1,5 @@
 {
-  "name": "@artracker/browser",
+  "name": "@artracker-sdk/browser",
   "version": "0.1.0",
   "description": "Lightweight Web SDK for session replay, error and event tracking",
   "license": "MIT",

@@ -346,7 +346,7 @@ describe('replay driver', () => {
     const c = make()
     expect(() => c.init({ ...opts, replay: { enabled: true }, debug: true })).not.toThrow()
     expect(() => c.startReplay()).not.toThrow()
-    expect(warn.mock.calls.some((a) => String(a[0]).includes('@artracker/browser/replay'))).toBe(true)
+    expect(warn.mock.calls.some((a) => String(a[0]).includes('@artracker-sdk/browser/replay'))).toBe(true)
   })
 
   test('rotasi sesi (reset) memulai ulang perekaman untuk sesi baru', async () => {
