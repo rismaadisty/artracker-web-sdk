@@ -22,3 +22,6 @@ export const ARTracker = {
   shutdown: (): void => client.shutdown(),
 }
 
+export { replay, replayDriver } from './replay/index'
+
+
