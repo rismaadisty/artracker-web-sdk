@@ -32,7 +32,8 @@
     "test": "vitest run",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "size": "size-limit"
+    "size": "size-limit",
+    "demo": "python3 -m http.server 5173"
   },
   "peerDependencies": {
     "rrweb": ">=2.0.0"

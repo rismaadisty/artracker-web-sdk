@@ -13,6 +13,24 @@ export { replayDriver }
  *
  * Membutuhkan `rrweb` (optional peer dependency) pada aplikasi.
  */
-export function replay(options: { sampleRate?: number } = {}): { enabled: true; sampleRate: number | undefined; driver: ReplayDriver } {
-  return { enabled: true, sampleRate: options.sampleRate, driver: replayDriver }
+export function replay(options: { sampleRate?: number; uploadMode?: 'direct' | 'ingest' } = {}): {
+  enabled: true
+  sampleRate: number | undefined
+  driver: ReplayDriver
+  uploadMode?: 'direct' | 'ingest'
+} {
+  const result: {
+    enabled: true
+    sampleRate: number | undefined
+    driver: ReplayDriver
+    uploadMode?: 'direct' | 'ingest'
+  } = {
+    enabled: true,
+    sampleRate: options.sampleRate,
+    driver: replayDriver,
+  }
+  if (options.uploadMode !== undefined) {
+    result.uploadMode = options.uploadMode
+  }
+  return result
 }

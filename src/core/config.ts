@@ -54,6 +54,17 @@ export function resolveConfig(options: ARTrackerOptions): ResolvedConfig {
       enabled: o.replay?.enabled ?? false,
       sampleRate: clamp(o.replay?.sampleRate, 0, 1, 0.1),
       driver: o.replay?.driver,
+      uploadMode: o.replay?.uploadMode ?? 'direct',
+    },
+    frustration: {
+      enabled: o.frustration?.enabled ?? true,
+      rageClickWindowMs: clamp(o.frustration?.rageClickWindowMs, 100, 5000, 500),
+      rageMinClicks: clamp(o.frustration?.rageMinClicks, 2, 20, 3),
+      rageRadiusPx: clamp(o.frustration?.rageRadiusPx, 5, 200, 30),
+      deadClickWindowMs: clamp(o.frustration?.deadClickWindowMs, 500, 10000, 1500),
+    },
+    vitals: {
+      enabled: o.vitals?.enabled ?? true,
     },
     privacy: {
       maskAllInputs: o.privacy?.maskAllInputs ?? true,

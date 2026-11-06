@@ -3,6 +3,8 @@ import { BreadcrumbBuffer, installBreadcrumbListeners } from '../telemetry/bread
 import { installNavigationListeners } from '../telemetry/navigation'
 import { installNetworkInterceptors } from '../telemetry/network'
 import { buildErrorReport, installErrorListeners } from '../telemetry/errors'
+import { installFrustrationListeners } from '../telemetry/frustration'
+import { installVitalsListeners } from '../telemetry/vitals'
 import { redactItem } from '../privacy/redactor'
 import { BatchQueue, type FlushReason } from '../transport/queue'
 import { createBatchStore, type BatchStore, type PendingBatch } from '../transport/persistence'
@@ -28,6 +30,10 @@ export interface TelemetryContext {
   cfg: ResolvedConfig
   breadcrumbs: BreadcrumbBuffer
   session: SessionManager
+  user?: UserStore
+  getFrustrationFlags?: () => { hasRageClick: boolean; hasDeadClick: boolean }
+  onSessionError?: (listener: () => void) => void
+  notifySessionError?: () => void
 }
 
 interface Runtime {
@@ -52,6 +58,7 @@ interface Runtime {
   replayStop: (() => void) | undefined
   replayStarting: boolean
   replayForced: boolean
+  notifySessionError: () => void
 }
 
 const isBrowser = (): boolean => typeof window !== 'undefined' && typeof document !== 'undefined'
@@ -153,6 +160,7 @@ export class ARTrackerClient {
     this.run((rt) => {
       const report = buildErrorReport(error, rt.breadcrumbs, context)
       this.emit(rt, { type: 'log', level: 'error', message: report.message, attributes: report.attributes })
+      rt.notifySessionError()
     })
   }
 
@@ -231,6 +239,9 @@ export class ARTrackerClient {
     const session = new SessionManager(cfg)
     const breadcrumbs = new BreadcrumbBuffer(cfg.breadcrumbs.limit)
     const bus = new Bus()
+    const sessionErrorListeners = new Set<() => void>()
+    let frustrationFlagsProvider: (() => { hasRageClick: boolean; hasDeadClick: boolean }) | undefined
+
     const rt = {
       cfg,
       session,
@@ -251,13 +262,30 @@ export class ARTrackerClient {
       replayStop: undefined,
       replayStarting: false,
       replayForced: false,
+      notifySessionError: () => {
+        for (const listener of sessionErrorListeners) {
+          try {
+            listener()
+          } catch {
+            // ignore
+          }
+        }
+      },
     } as unknown as Runtime
     rt.queue = new BatchQueue(cfg, (items, reason) => this.onFlush(rt, items, reason))
     rt.ctx = {
       cfg,
       session,
+      user: rt.user,
       breadcrumbs,
       emit: (input) => safeCall(() => this.emit(rt, input), cfg.debug, 'emit'),
+      getFrustrationFlags: () => (frustrationFlagsProvider ? frustrationFlagsProvider() : { hasRageClick: false, hasDeadClick: false }),
+      onSessionError: (cb) => {
+        sessionErrorListeners.add(cb)
+      },
+      notifySessionError: () => {
+        rt.notifySessionError()
+      },
     }
     bus.on((item) => rt.queue.add(item))
 
@@ -287,6 +315,14 @@ export class ARTrackerClient {
 
     rt.cleanups.push(installErrorListeners(rt.ctx), installBreadcrumbListeners(rt.ctx), installNavigationListeners(rt.ctx))
     if (cfg.network.enabled) rt.cleanups.push(installNetworkInterceptors(rt.ctx))
+    if (cfg.frustration.enabled) {
+      const frustration = installFrustrationListeners(rt.ctx)
+      frustrationFlagsProvider = () => frustration.engine.getAndResetChunkFlags()
+      rt.cleanups.push(frustration.cleanup)
+    }
+    if (cfg.vitals.enabled) {
+      rt.cleanups.push(installVitalsListeners(rt.ctx))
+    }
 
     this.rt = rt
     // Sesi yang dipulihkan (muat ulang halaman) bukan sesi baru: jangan menggandakan session_start.

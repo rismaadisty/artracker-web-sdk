@@ -110,6 +110,7 @@ export function installErrorListeners(ctx: TelemetryContext): () => void {
           ? buildErrorReport(e.error, ctx.breadcrumbs, extra, 'error')
           : buildErrorReport(e.message || 'Unknown error', ctx.breadcrumbs, extra, 'error')
       if (!allow(String(report.attributes.fingerprint))) return
+      ctx.notifySessionError?.()
       ctx.emit({ type: 'log', level: 'error', message: isError(e.error) ? report.message : e.message || report.message, attributes: report.attributes })
     } catch {
       /* listener tidak boleh melempar ke aplikasi host */
@@ -121,6 +122,7 @@ export function installErrorListeners(ctx: TelemetryContext): () => void {
       const reason = (ev as PromiseRejectionEvent).reason
       const report = buildErrorReport(reason, ctx.breadcrumbs, undefined, 'unhandledrejection', 'UnhandledRejection')
       if (!allow(String(report.attributes.fingerprint))) return
+      ctx.notifySessionError?.()
       ctx.emit({ type: 'log', level: 'error', message: report.message, attributes: report.attributes })
     } catch {
       /* diabaikan */

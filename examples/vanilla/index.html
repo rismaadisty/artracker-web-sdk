@@ -3,29 +3,324 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>artracker — contoh vanilla</title>
+    <title>ARTracker Web SDK Demo — Full Feature Showcase</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
+    <style>
+      :root {
+        --bg: #0f172a;
+        --card-bg: #1e293b;
+        --border: #334155;
+        --text: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #38bdf8;
+        --primary-hover: #0ea5e9;
+        --danger: #f87171;
+        --danger-hover: #ef4444;
+        --warning: #fbbf24;
+        --success: #4ade80;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 2rem;
+        line-height: 1.5;
+      }
+      .container { max-width: 960px; margin: 0 auto; }
+      header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+      h1 { font-size: 1.875rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
+      .badge { font-size: 0.75rem; background: #0284c7; color: white; padding: 0.2rem 0.6rem; border-radius: 9999px; }
+      p.subtitle { color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem; }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+      .card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .card h2 { font-size: 1.1rem; font-weight: 600; color: var(--primary); }
+      .card p { font-size: 0.875rem; color: var(--text-muted); }
+
+      button {
+        background: #334155;
+        color: #fff;
+        border: 1px solid #475569;
+        padding: 0.6rem 1rem;
+        border-radius: 0.5rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-align: center;
+        font-size: 0.875rem;
+      }
+      button:hover { background: #475569; border-color: #64748b; }
+      button.btn-primary { background: #0284c7; border-color: #0369a1; }
+      button.btn-primary:hover { background: #0369a1; }
+      button.btn-danger { background: #b91c1c; border-color: #991b1b; }
+      button.btn-danger:hover { background: #991b1b; }
+      button.btn-warning { background: #b45309; border-color: #92400e; }
+      button.btn-warning:hover { background: #92400e; }
+
+      .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+      label { font-size: 0.8rem; color: var(--text-muted); }
+      input {
+        background: #0f172a;
+        border: 1px solid var(--border);
+        color: #fff;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+      }
+      input:focus { outline: none; border-color: var(--primary); }
+
+      .console-box {
+        background: #090d16;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.825rem;
+        max-height: 220px;
+        overflow-y: auto;
+        color: #a5f3fc;
+      }
+      .console-entry { margin-bottom: 0.25rem; line-height: 1.4; }
+      .console-entry.info { color: #38bdf8; }
+      .console-entry.warn { color: #fbbf24; }
+      .console-entry.error { color: #f87171; }
+      .console-entry.success { color: #4ade80; }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+        background: #064e3b;
+        color: #6ee7b7;
+        padding: 0.25rem 0.6rem;
+        border-radius: 9999px;
+        font-weight: 500;
+      }
+      .status-pill::before {
+        content: "";
+        display: block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #34d399;
+      }
+    </style>
   </head>
   <body>
-    <h1>artracker — contoh vanilla</h1>
-    <p>Jalankan <code>pnpm build</code> dulu, ganti <code>appKey</code>/<code>endpoint</code>, lalu buka halaman ini lewat server statis.</p>
+    <div class="container">
+      <header>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h1>ARTracker Web SDK Demo <span class="badge">v0.1.0</span></h1>
+          <div class="status-pill" id="sdkStatus">SDK Initializing...</div>
+        </div>
+        <p class="subtitle">Live demo: Frustration Detection (Rage & Dead clicks), Core Web Vitals, Session Replay (Cloudflare R2 Direct Upload & Ingest Fallback), PII Masking, and Error Telemetry.</p>
+      </header>
 
-    <button id="track">track('demo_clicked')</button>
-    <button id="error">Lempar error</button>
-    <button id="fetch">fetch</button>
-    <button id="nav">pushState</button>
-    <div data-artracker-mask>Isi di sini disamarkan pada replay.</div>
+      <div class="grid">
+        <!-- Card 1: Frustration Detection -->
+        <div class="card">
+          <h2>1. Frustration Detection</h2>
+          <p>Uji deteksi kemarahan (Rage Click) dan klik tidak responsif (Dead Click).</p>
+          <button id="btnRage" class="btn-warning">🔥 Rage Click (Klik 3x Cepat)</button>
+          <button id="btnAutoRage">⚡ Auto Simulasi 5x Rage Click</button>
+          <button id="btnDead">⏳ Dead Click (Klik lalu diam tanpa respon)</button>
+        </div>
 
+        <!-- Card 2: Error & Exceptions -->
+        <div class="card">
+          <h2>2. Error & Sticky Replay Flag</h2>
+          <p>Lempar error runtime; chunk session replay otomatis ditandai <code>has_error=true</code>.</p>
+          <button id="btnError" class="btn-danger">💥 Lempar Uncaught JS Error</button>
+          <button id="btnUnhandledPromise" class="btn-danger">⚡ Unhandled Promise Rejection</button>
+          <button id="btnFetchFail">🌐 Fetch 404 URL</button>
+        </div>
+
+        <!-- Card 3: User Identity & Events -->
+        <div class="card">
+          <h2>3. Identity & Custom Events</h2>
+          <p>Identifikasi user aktif dan kirim telemetry custom event.</p>
+          <button id="btnIdentify" class="btn-primary">👤 ARTracker.identify('demo_user_123')</button>
+          <button id="btnTrackCustom">📊 Track Event: checkout_step</button>
+          <button id="btnPushState">🧭 SPA Navigation (pushState)</button>
+        </div>
+
+        <!-- Card 4: Session Replay & Masking -->
+        <div class="card">
+          <h2>4. Replay & PII Masking</h2>
+          <p>Input dengan masking bawaan untuk melindungi data privasi pengguna.</p>
+          <div class="form-group">
+            <label for="maskedInput">Input Masked (otomatis ditutup asteris di replay):</label>
+            <input type="password" id="maskedInput" placeholder="Ketik nomor rahasia..." value="rahasia12345" />
+          </div>
+          <div class="form-group">
+            <label for="unmaskedInput">Input Terbuka (data-artracker-unmask):</label>
+            <input type="text" id="unmaskedInput" data-artracker-unmask placeholder="Komentar publik..." value="Bagus aplikasinya!" />
+          </div>
+          <button id="btnFlushReplay" style="margin-top: 0.5rem;">💾 ARTracker.flush()</button>
+        </div>
+      </div>
+
+      <!-- Live Activity Console -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="color: #cbd5e1;">Live Activity Log</h2>
+          <button id="btnClearLog" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">Clear Log</button>
+        </div>
+        <div class="console-box" id="consoleLogs"></div>
+      </div>
+    </div>
+
+    <!-- 1. Optional rrweb for DOM Session Recording -->
+    <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
+
+    <!-- 2. ARTracker Global Bundle -->
     <script src="../../dist/index.global.js"></script>
+
     <script>
-      ARTracker.init({
-        appKey: 'art_live_REPLACE_ME_0000000000000000000000',
-        endpoint: 'http://localhost:8080/api/v1/ingest',
-        debug: true,
-      })
-      document.getElementById('track').onclick = () => ARTracker.track('demo_clicked', { at: Date.now() })
-      document.getElementById('error').onclick = () => { throw new Error('demo error') }
-      document.getElementById('fetch').onclick = () => fetch('/does-not-exist').catch(() => {})
-      document.getElementById('nav').onclick = () => history.pushState({}, '', '/demo-' + Date.now())
+      const logBox = document.getElementById('consoleLogs');
+      function log(msg, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `console-entry ${type}`;
+        const time = new Date().toLocaleTimeString();
+        entry.textContent = `[${time}] ${msg}`;
+        logBox.appendChild(entry);
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+
+      // Intercept console.log/warn/error for display
+      const origWarn = console.warn;
+      console.warn = function(...args) {
+        origWarn.apply(console, args);
+        log('WARN: ' + args.join(' '), 'warn');
+      };
+      const origError = console.error;
+      console.error = function(...args) {
+        origError.apply(console, args);
+        log('ERROR: ' + args.join(' '), 'error');
+      };
+
+      try {
+        ARTracker.init({
+          appKey: 'art_live_demo_web_sdk_test_key_001',
+          endpoint: 'http://localhost:8081/api/v1/ingest',
+          debug: true,
+          replay: {
+            enabled: true,
+            sampleRate: 1.0,
+            uploadMode: 'direct',
+            maskAllInputs: true,
+          },
+          frustration: {
+            enabled: true,
+            rageClicks: true,
+            deadClicks: true,
+            rageClickThreshold: 3,
+            deadClickWindowMs: 1500,
+          },
+          vitals: {
+            enabled: true,
+          },
+        });
+
+        document.getElementById('sdkStatus').textContent = 'SDK Ready & Recording';
+        log('ARTracker Web SDK initialized successfully with Direct R2 Session Replay and Frustration Monitoring.', 'success');
+      } catch (e) {
+        document.getElementById('sdkStatus').textContent = 'SDK Init Failed';
+        document.getElementById('sdkStatus').style.background = '#7f1d1d';
+        document.getElementById('sdkStatus').style.color = '#fca5a5';
+        log('Initialization error: ' + e.message, 'error');
+      }
+
+      // 1. Frustration Triggers
+      let rageCount = 0;
+      let rageTimer = null;
+      document.getElementById('btnRage').addEventListener('click', (e) => {
+        rageCount++;
+        log(`Rage button clicked (${rageCount}x). Klik ${3 - rageCount > 0 ? (3 - rageCount) + 'x lagi dalam 500ms' : 'tercapai threshold!'}`, 'warn');
+        clearTimeout(rageTimer);
+        rageTimer = setTimeout(() => { rageCount = 0; }, 500);
+      });
+
+      document.getElementById('btnAutoRage').addEventListener('click', () => {
+        const btn = document.getElementById('btnRage');
+        log('⚡ Melakukan simulasi 4x klik cepat berturut-turut...', 'warn');
+        for (let i = 0; i < 4; i++) {
+          setTimeout(() => {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 120 + i, clientY: 150 }));
+          }, i * 60);
+        }
+      });
+
+      document.getElementById('btnDead').addEventListener('click', () => {
+        log('⏳ Dead Click diklik. Menunggu 1500ms tanpa aksi respons...', 'warn');
+      });
+
+      // 2. Errors
+      document.getElementById('btnError').addEventListener('click', () => {
+        log('Memicu Uncaught Error...', 'error');
+        setTimeout(() => {
+          throw new Error('Demo Uncaught Exception: Pembayaran gagal di front-end demo');
+        }, 10);
+      });
+
+      document.getElementById('btnUnhandledPromise').addEventListener('click', () => {
+        log('Memicu Unhandled Promise Rejection...', 'error');
+        Promise.reject(new Error('Demo Unhandled Rejection: Koneksi gateway timeout'));
+      });
+
+      document.getElementById('btnFetchFail').addEventListener('click', () => {
+        log('Melakukan HTTP fetch ke endpoint tidak ada...', 'info');
+        fetch('/api/v1/non-existent-endpoint-test').catch(err => {
+          log('Fetch selesai dengan error (tercatat di breadcrumbs): ' + err.message, 'warn');
+        });
+      });
+
+      // 3. Identity & Custom Events
+      document.getElementById('btnIdentify').addEventListener('click', () => {
+        ARTracker.identify('demo_user_123', {
+          role: 'administrator',
+          organization: 'AI Mastery Tech',
+          tier: 'enterprise',
+        });
+        log('ARTracker.identify("demo_user_123") dipanggil.', 'success');
+      });
+
+      document.getElementById('btnTrackCustom').addEventListener('click', () => {
+        ARTracker.track('checkout_step', {
+          step: 2,
+          currency: 'IDR',
+          amount: 250000,
+          items_count: 3,
+        });
+        log('ARTracker.track("checkout_step") berhasil dikirim.', 'success');
+      });
+
+      document.getElementById('btnPushState').addEventListener('click', () => {
+        const targetUrl = '/demo-page/' + Date.now();
+        history.pushState({}, '', targetUrl);
+        log('Navigasi SPA ke: ' + targetUrl, 'info');
+      });
+
+      // 4. Replay Flush
+      document.getElementById('btnFlushReplay').addEventListener('click', async () => {
+        log('Memanggil ARTracker.flush()...', 'info');
+        await ARTracker.flush();
+        log('ARTracker.flush() selesai dikirim ke backend / R2.', 'success');
+      });
+
+      document.getElementById('btnClearLog').addEventListener('click', () => {
+        logBox.innerHTML = '';
+      });
     </script>
   </body>
 </html>

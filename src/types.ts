@@ -41,7 +41,15 @@ export interface ARTrackerOptions {
   environment?: string
   appVersion?: string
   sampleRate?: number
-  replay?: { enabled?: boolean; sampleRate?: number; driver?: ReplayDriver }
+  replay?: { enabled?: boolean; sampleRate?: number; driver?: ReplayDriver; uploadMode?: 'direct' | 'ingest' }
+  frustration?: {
+    enabled?: boolean
+    rageClickWindowMs?: number
+    rageMinClicks?: number
+    rageRadiusPx?: number
+    deadClickWindowMs?: number
+  }
+  vitals?: { enabled?: boolean }
   privacy?: {
     maskAllInputs?: boolean
     blockClass?: string
@@ -67,7 +75,15 @@ export interface ResolvedConfig {
   environment: string
   appVersion: string
   sampleRate: number
-  replay: { enabled: boolean; sampleRate: number; driver: ReplayDriver | undefined }
+  replay: { enabled: boolean; sampleRate: number; driver: ReplayDriver | undefined; uploadMode: 'direct' | 'ingest' }
+  frustration: {
+    enabled: boolean
+    rageClickWindowMs: number
+    rageMinClicks: number
+    rageRadiusPx: number
+    deadClickWindowMs: number
+  }
+  vitals: { enabled: boolean }
   privacy: {
     maskAllInputs: boolean
     blockClass: string
