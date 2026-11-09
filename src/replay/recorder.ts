@@ -124,6 +124,7 @@ export async function startRecording(ctx: TelemetryContext, opts?: { force?: boo
     const uploadMode = cfg.replay.uploadMode ?? 'direct'
 
     if (uploadMode === 'direct') {
+      seq++
       void flushDirect(events, currentSeq)
     } else {
       for (const chunk of chunkEvents(events, MAX_CHUNK_BYTES, currentSeq)) {
@@ -151,6 +152,7 @@ export async function startRecording(ctx: TelemetryContext, opts?: { force?: boo
   })
 
   const timer = setInterval(() => idle(() => void flush()), FLUSH_MS)
+  const initialTimer = setTimeout(() => idle(() => void flush()), 1500)
 
   const onHide = (): void => {
     void flush()
@@ -163,6 +165,7 @@ export async function startRecording(ctx: TelemetryContext, opts?: { force?: boo
 
   return () => {
     if (stopped) return
+    clearTimeout(initialTimer)
     clearInterval(timer)
     window.removeEventListener('pagehide', onHide, true)
     document.removeEventListener('visibilitychange', onVisibility, true)
