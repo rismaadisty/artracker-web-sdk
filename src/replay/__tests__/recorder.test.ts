@@ -8,8 +8,15 @@ const base = { appKey: 'art_live_' + '0'.repeat(32), endpoint: 'https://a.exampl
 type Emitted = { type: string; name: string; at?: number; skipRedaction?: boolean; attributes: { seq: number; start: number; end: number; full_snapshot: boolean; events: Array<{ type: number }> } }
 
 let emit: ReturnType<typeof vi.fn>
-const make = (replay: { enabled?: boolean; sampleRate?: number } = { enabled: true, sampleRate: 1 }, privacy = {}) => {
-  const cfg = resolveConfig({ ...base, replay, privacy })
+const make = (
+  replay: { enabled?: boolean; sampleRate?: number; uploadMode?: 'direct' | 'ingest' } = {
+    enabled: true,
+    sampleRate: 1,
+    uploadMode: 'ingest',
+  },
+  privacy = {},
+) => {
+  const cfg = resolveConfig({ ...base, replay: { uploadMode: 'ingest', ...replay }, privacy })
   const ctx: TelemetryContext = { cfg, session: new SessionManager(cfg), breadcrumbs: new BreadcrumbBuffer(30), emit: emit as unknown as TelemetryContext['emit'] }
   return ctx
 }

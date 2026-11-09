@@ -121,20 +121,21 @@ export async function startRecording(ctx: TelemetryContext, opts?: { force?: boo
     buffer = []
 
     const currentSeq = seq
-    for (const chunk of chunkEvents(events, MAX_CHUNK_BYTES, currentSeq)) {
-      seq = chunk.seq + 1
-      ctx.emit({
-        type: 'session',
-        name: 'replay_chunk',
-        at: chunk.start,
-        attributes: { ...chunk },
-        skipRedaction: true,
-      })
-    }
-
     const uploadMode = cfg.replay.uploadMode ?? 'direct'
+
     if (uploadMode === 'direct') {
       void flushDirect(events, currentSeq)
+    } else {
+      for (const chunk of chunkEvents(events, MAX_CHUNK_BYTES, currentSeq)) {
+        seq = chunk.seq + 1
+        ctx.emit({
+          type: 'session',
+          name: 'replay_chunk',
+          at: chunk.start,
+          attributes: { ...chunk },
+          skipRedaction: true,
+        })
+      }
     }
   }
 

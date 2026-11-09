@@ -32,11 +32,19 @@ function levelFor(status: number): LogLevel {
 export function installNetworkInterceptors(ctx: TelemetryContext): () => void {
   const { cfg } = ctx
   const ownEndpoint = withoutQuery(resolveUrl(cfg.endpoint))
+  let ownHost = ''
+  try {
+    ownHost = new URL(cfg.endpoint).host
+  } catch {}
   let active = true
 
-  /** Anti-rekursi: request ke endpoint ingest sendiri tidak boleh menghasilkan telemetri lagi. */
+  /** Anti-rekursi: request ke endpoint ingest, replay, atau storage sendiri tidak boleh menghasilkan telemetri. */
   const ignored = (url: string): boolean => {
-    if (withoutQuery(url) === ownEndpoint) return true
+    const clean = withoutQuery(url)
+    if (clean === ownEndpoint) return true
+    if (ownHost && (clean.includes(ownHost) || clean.includes('/api/v1/'))) return true
+    if (clean.includes('/api/v1/replay') || clean.includes('/api/v1/ingest') || clean.includes('/api/v1/events')) return true
+    if (clean.includes('r2.cloudflarestorage.com') || clean.includes('.r2.dev')) return true
     return cfg.network.ignoreUrls.some((p) => (typeof p === 'string' ? url.includes(p) : p.test(url)))
   }
 
